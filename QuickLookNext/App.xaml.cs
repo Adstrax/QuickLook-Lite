@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -88,6 +88,14 @@ public partial class App : Application
     // render path really succeeded instead of guessing from pixels.
     internal static bool IsPreviewDiagEnabled { get; private set; }
 
+    // v3.31.0-dev (shell prototype): when true, this process is the preview
+    // child spawned by QuickLookNext.Shell. It skips the tray icon / global
+    // keyboard hook / idle trimmer; the shell owns the session and sends
+    // preview requests over the child pipe. The child stays warm between
+    // previews and exits only when the shell kills it or the app quits.
+    internal static bool IsChildInstance { get; private set; }
+    internal static string ChildPreviewPath { get; private set; }
+
     // The WMI video-controller query used by the blacklist check can take
     // hundreds of milliseconds on some machines. Compute it lazily on a
     // background thread (kicked off in OnStartup) so it never blocks the
@@ -140,6 +148,17 @@ public partial class App : Application
         IsStartupTimingEnabled = e.Args.Contains("/test-startup");
         DisableFocusMonitor = e.Args.Contains("/test-no-focusmonitor");
         IsPreviewDiagEnabled = e.Args.Contains("/test-preview-diag");
+
+        IsChildInstance = e.Args.Contains("--child-instance");
+        if (IsChildInstance)
+        {
+            var marker = Array.IndexOf(e.Args, "--child-instance");
+            ChildPreviewPath = marker >= 0 && marker + 1 < e.Args.Length ? e.Args[marker + 1] : null;
+
+            // The child only previews what the shell tells it to; it must not
+            // follow Explorer's selection on its own.
+            DisableFocusMonitor = true;
+        }
         if (IsPreviewDiagEnabled)
         {
             try
@@ -170,6 +189,28 @@ public partial class App : Application
 
         RunListener(e);
         RecordStartupPhase("after-runlistener");
+
+        // v3.31.0-dev: the shell spawned this child to preview one file. Show
+        // it right away; further requests arrive over the child pipe.
+        if (IsChildInstance)
+        {
+            var childPath = ChildPreviewPath;
+            if (!string.IsNullOrEmpty(childPath))
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        ViewWindowManager.GetInstance().InvokePreview(childPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        ProcessHelper.WriteLog(ex.ToString());
+                    }
+                }));
+            }
+            return;
+        }
 
         // Hidden test hook: open the tray menu once so the smoke test can
         // verify the Mica tray menu renders without errors.
@@ -516,7 +557,10 @@ public partial class App : Application
 
     private bool EnsureFirstInstance(string[] args)
     {
-        _isRunning = new Mutex(true, StartupForwarder.MutexName, out bool isFirst);
+        // v3.31.0-dev: the shell-spawned preview child uses its own mutex so it
+        // can run next to (or without) the normal single instance.
+        var mutexName = IsChildInstance ? "QuickLookNext.Child.Mutex" : StartupForwarder.MutexName;
+        _isRunning = new Mutex(true, mutexName, out bool isFirst);
 
         if (isFirst)
             return true;
@@ -566,6 +610,17 @@ public partial class App : Application
 
     private void RunListener(StartupEventArgs e)
     {
+        if (IsChildInstance)
+        {
+            // v3.31.0-dev: shell prototype. QuickLookNext.Shell owns the tray
+            // icon, the space key and Explorer selection; this child only
+            // renders previews it is asked to show.
+            PluginManager.GetInstance();
+            ViewWindowManager.GetInstance();
+            PipeServerManager.GetInstance(); // child pipe name (see PipeServerManager)
+            return;
+        }
+
         TrayIconManager.Start();
         if (!e.Args.Contains("/autorun") && !IsUWP)
             TrayIconManager.ShowNotification(string.Empty, TranslationHelper.Get("APP_START"));
@@ -578,5 +633,6 @@ public partial class App : Application
         ViewWindowManager.GetInstance();
         KeystrokeDispatcher.GetInstance();
         PipeServerManager.GetInstance();
+        IdleMemoryTrimmer.Start();
     }
 }

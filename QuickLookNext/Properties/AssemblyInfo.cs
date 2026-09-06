@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -68,3 +68,4 @@ using System.Windows.Media;
 
 // If .NET Version is higher than 4.6.2 (Not include 4.6.2), use the following line
 // [assembly: DisableDpiAwareness]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("QuickLookNext.Shell")]

@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -48,6 +48,7 @@ public class ViewWindowManager : IDisposable
     }
 
     internal ViewerWindow CurrentViewerWindow => _viewerWindow;
+    internal bool HasActivePreview => !string.IsNullOrEmpty(_invokedPath);
 
     private ViewerWindow EnsureViewerWindow()
     {

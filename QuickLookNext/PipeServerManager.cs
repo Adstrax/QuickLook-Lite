@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -42,7 +42,11 @@ public static class PipeMessages
 
 public class PipeServerManager : IDisposable
 {
-    private static readonly string PipeName = "QuickLookNext.App.Pipe." + WindowsIdentity.GetCurrent().User?.Value;
+    // v3.31.0-dev: a shell-spawned preview child listens on its own pipe so
+    // QuickLookNext.Shell can send preview requests to the warm child.
+    private static readonly string PipeName =
+        (App.IsChildInstance ? "QuickLookNext.Child.Pipe." : "QuickLookNext.App.Pipe.")
+        + WindowsIdentity.GetCurrent().User?.Value;
     private static PipeServerManager _instance;
 
     private DispatcherOperation _lastOperation;

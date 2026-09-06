@@ -170,6 +170,15 @@ These keys are also stored in `QuickLookNext.config`.
 - Example:
   - `<ExtensionBlocklist>.insv;.exe</ExtensionBlocklist>`
 
+### `<IdleMemoryTrimMinutes>`
+- Default: `5`
+- Type: `Integer`
+- Description: Minutes of no preview activity after which the app runs one
+  blocking full garbage collection with large-object-heap compaction,
+  returning memory that closed previews left behind. Runs only while no
+  preview is open and only after the first preview of the session. `0` disables.
+- Example:
+  - `<IdleMemoryTrimMinutes>1</IdleMemoryTrimMinutes>`
 ### `<WebView2IdleTimeoutSeconds>`
 - Default: `300`
 - Type: `Integer`
