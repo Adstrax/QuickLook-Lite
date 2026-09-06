@@ -105,7 +105,9 @@ public partial class App : Application
         () => SystemHelper.IsGPUInBlacklist(),
         LazyThreadSafetyMode.ExecutionAndPublication);
 
-    public static bool IsGPUInBlacklist => _gpuInBlacklist.Value;
+    // v3.31.0-dev: the shell-spawned preview child does not need the WMI
+    // GPU blacklist query; skipping it removes a possible first-preview wait.
+    public static bool IsGPUInBlacklist => IsChildInstance ? false : _gpuInBlacklist.Value;
 
     private bool _cleanExit = true;
     private Mutex _isRunning;
@@ -138,7 +140,8 @@ public partial class App : Application
     {
         // Kick off the GPU blacklist check in the background so it overlaps
         // with the rest of startup instead of blocking it.
-        _ = Task.Run(() => _ = _gpuInBlacklist.Value);
+        if (!IsChildInstance)
+            _ = Task.Run(() => _ = _gpuInBlacklist.Value);
 
         // v3.28.0: preload the plugin-usage counter on a background thread so
         // the first preview never pays the one-time stats file read.

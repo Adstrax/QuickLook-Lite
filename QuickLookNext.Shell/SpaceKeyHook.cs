@@ -67,11 +67,21 @@ internal sealed class SpaceKeyHook : IDisposable
                 if (key == Keys.Space && Control.ModifierKeys == Keys.None)
                 {
                     if (_spaceDown)
-                        return 1; // auto-repeat while held down
+                        return 1; // auto-repeat while the shell owns the key
+
+                    // Only take the key when Explorer or the desktop is focused.
+                    // Everywhere else (typing, IME candidate selection, games)
+                    // the space must pass through untouched.
+                    var focus = global::QuickLookNext.NativeMethods.QuickLookNext.GetFocusedWindowType();
+                    if (focus != global::QuickLookNext.NativeMethods.QuickLookNext.FocusedWindowType.Explorer &&
+                        focus != global::QuickLookNext.NativeMethods.QuickLookNext.FocusedWindowType.Desktop)
+                    {
+                        return Native.CallNextHookEx(_hHook, code, wParam, ref lParam);
+                    }
 
                     _spaceDown = true;
                     SpacePressed?.Invoke(this, EventArgs.Empty);
-                    return 1; // swallow the space so Explorer does not toggle selection
+                    return 1; // swallow so Explorer does not toggle its own selection
                 }
             }
             else if (wParam == Native.WM_KEYUP && key == Keys.Space)
