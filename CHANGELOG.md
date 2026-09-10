@@ -2,6 +2,54 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.31.0
+
+> 这一版不引入新功能，集中处理 v3.30.0 复核出来的可靠性、安全与工程问题；
+> 4.0 的薄壳原型不在本次范围内。
+
+### 工程（回归测试与 CI）
+
+- 新增 QuickLook.Tests：不依赖任何 NuGet 包的回归测试宿主，覆盖命令行解析、
+  扩展名过滤、设置读写与更新地址白名单（26 个用例），`dotnet run` 即可执行
+- CI 构建范围从 main/lite 扩展到所有分支（此前工作分支完全不触发），并在 build
+  任务里新增单元测试步骤；GUI 冒烟测试仍只在发布线上运行
+- 新增 .editorconfig 格式基线；移除 Updater 中已不可达的 release notes 代码
+
+### 可靠性（插件匹配）
+
+- 首次预览冷门格式时，按需加载内置插件程序集的工作从 UI 线程移到线程池
+  （PluginManager.FindMatchAsync）；常见格式的匹配路径行为完全不变，被新请求
+  取代的旧请求会安全丢弃
+- 插件匹配加锁并使用列表快照，避免后台按需加载与匹配并发时读到半更新的列表
+
+### 插件契约
+
+- ContextObject 新增 ApplyPreferredSizeNow() / ResizeRequested：插件请求宿主按
+  内容尺寸调整窗口终于有了公开 API，PDFViewer 不再用反射调用 ViewerWindow 的
+  私有方法
+- IViewer 补全生命周期文档：Init 每类型一次且运行在常驻实例上，Prepare / View /
+  Cleanup 每次预览使用新实例，View 必须在后台完成工作后置 IsBusy = false
+
+### 设置存储
+
+- 设置读取改为内存缓存（每个文件每秒最多一次 stat 校验），键盘钩子与顶栏轮询
+  这类热路径不再执行 XPath 查询
+- 落盘改为「临时文件 + 原子替换」，崩溃或并发读取不会再看到半截配置；读取遇到
+  IO 故障时降级为空配置而不是向上抛异常
+
+### 自动更新
+
+- 不再使用 UseDefaultCredentials 与伪装 curl 的 UA，避免向更新源泄露当前
+  Windows 凭据
+- 只接受 https + GitHub 域名（github.com / *.githubusercontent.com 等）的下载
+  地址，并增加 400MB 体积上限
+- 更新脚本改为「先备份、失败回滚、记录 update.log（含包 SHA-256）」，并保留
+  portable.lock 与 UserData 目录
+- 「上次检查时间」改为 API 调用成功后才写入（此前离线一次会导致 30 天不再检查
+  更新）；后台检查失败不再弹错误提示
+
+构建 0 warning / 0 error，QuickLook.Tests 26/26 通过。
+
 ## QuickLook-Next 3.30.0
 
 ### 内存（纯文本预览惰性加载）

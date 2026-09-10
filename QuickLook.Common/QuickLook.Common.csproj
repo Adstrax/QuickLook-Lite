@@ -16,8 +16,8 @@
         <Authors>QL-Win</Authors>
         <Company>QL-Win</Company>
         <Description>This repository holds the common library of QuickLookNext. The library is shared among all QuickLookNext projects.</Description>
-        <PackageProjectUrl>https://github.com/QL-Win/QuickLook</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/QL-Win/QuickLook</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/Adstrax/QuickLook-Next</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/Adstrax/QuickLook-Next</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>QuickLookNext</PackageTags>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>

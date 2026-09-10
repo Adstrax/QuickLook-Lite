@@ -1,0 +1,39 @@
+# v3.31.0: baseline formatting rules. The repository had no editorconfig, so
+# every contributor's IDE applied its own defaults. These rules are IDE-only
+# suggestions - the build does not treat them as errors yet.
+root = true
+
+[*]
+charset = utf-8-bom
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{cs,xaml}]
+indent_size = 4
+
+[*.{json,yml,yaml,xml,csproj,props,targets,slnx}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# Keep the existing style of the code base (private fields without prefix are
+# already used everywhere; do not make the IDE suggest renames).
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = none
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_prefer_braces = true:suggestion
+
+# A preview plugin must not be killed by an analyzer suggestion; these are the
+# rules that would otherwise conflict with the deliberate patterns in the code.
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA1416.severity = none
+dotnet_diagnostic.SYSLIB0050.severity = none
