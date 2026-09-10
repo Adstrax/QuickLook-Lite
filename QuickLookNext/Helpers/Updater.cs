@@ -251,9 +251,12 @@ internal class Updater
             ZipFile.ExtractToDirectory(zipPath, extractDir);
 
             // Sanity check: the package must contain the app entry points before
-            // anything in the installed folder is touched.
+            // anything in the installed folder is touched. The release package
+            // produced by Scripts/pack-release.ps1 keeps QuickLook.Common.dll in
+            // lib\, a plain build output keeps it next to the exe - accept both.
             if (!File.Exists(Path.Combine(extractDir, "QuickLook-Next.exe")) ||
-                !File.Exists(Path.Combine(extractDir, "QuickLook.Common.dll")))
+                (!File.Exists(Path.Combine(extractDir, "QuickLook.Common.dll")) &&
+                 !File.Exists(Path.Combine(extractDir, "lib", "QuickLook.Common.dll"))))
             {
                 ProcessHelper.WriteLog("Auto update refused: package does not look like a QuickLook-Next build");
                 return false;
@@ -385,7 +388,10 @@ internal class Updater
             xcopy "%QL_SRC%\*" "%QL_APP%\" /E /Y /Q /I >> "%QL_LOG%" 2>&1
             if errorlevel 1 goto rollback
             if not exist "%QL_APP%\QuickLook-Next.exe" goto rollback
-            if not exist "%QL_APP%\QuickLook.Common.dll" goto rollback
+            if exist "%QL_APP%\QuickLook.Common.dll" goto installed
+            if exist "%QL_APP%\lib\QuickLook.Common.dll" goto installed
+            goto rollback
+            :installed
             echo [%DATE% %TIME%] update ok>> "%QL_LOG%"
             goto restart
             :rollback

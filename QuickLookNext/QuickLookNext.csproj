@@ -3,6 +3,14 @@
     <PropertyGroup>
         <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
         <OutputType>WinExe</OutputType>
+        <!--
+            v3.32.0 note: the Windows 10 target platform version is what brings
+            Microsoft.Windows.SDK.NET.dll (23.7 MB) + WinRT.Runtime.dll into the
+            output. It cannot be dropped while Helpers/ShareHelper.cs uses the
+            WinRT DataTransferManager interop (the Windows share sheet); the
+            projection assembly is not subsettable. Removing the share button
+            would be the only way to save those 24 MB.
+        -->
         <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
         <AssemblyName>QuickLook-Next</AssemblyName>
         <FileAlignment>512</FileAlignment>
