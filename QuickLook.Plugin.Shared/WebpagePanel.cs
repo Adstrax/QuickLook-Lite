@@ -24,6 +24,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -109,25 +110,51 @@ public class WebpagePanel : UserControl
         // v3.32.0: only navigate when the controller really came up - a faulted
         // EnsureCoreWebView2Async (WebView2 runtime missing or being restarted)
         // used to surface as an unhandled "CoreWebView2 prior to being
-        // initialized" exception. The check runs on the UI thread because the
-        // WebView2 control is a DispatcherObject.
-        _webView?.EnsureCoreWebView2Async()
-            .ContinueWith(t =>
+        // initialized" exception. Chromium also fails transiently with
+        // 0x8007139F right after a controller was torn down, so one retry is
+        // enough to keep the preview working. The CoreWebView2 check runs on the
+        // UI thread because the WebView2 control is a DispatcherObject.
+        _ = NavigateWhenReadyAsync(html);
+    }
+
+    private async Task NavigateWhenReadyAsync(string html)
+    {
+        if (_webView == null)
+            return;
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try
             {
-                if (!t.IsCompletedSuccessfully)
-                {
-                    ProcessHelper.WriteLog($"[WebpagePanel] CoreWebView2 init failed: {t.Exception?.GetBaseException().Message}");
+                await _webView.EnsureCoreWebView2Async();
+            }
+            catch (Exception e)
+            {
+                ProcessHelper.WriteLog(
+                    $"[WebpagePanel] CoreWebView2 init failed (attempt {attempt}): {e.GetBaseException().Message}");
+
+                if (attempt == 2)
                     return;
-                }
 
-                Dispatcher.Invoke(() =>
-                {
-                    if (_disposed || _webView?.CoreWebView2 == null)
-                        return;
+                await Task.Delay(300);
+                continue;
+            }
 
-                    _webView.NavigateToString(html);
-                });
+            if (_disposed)
+                return;
+
+            // Touching CoreWebView2 requires the UI thread; marshalling keeps
+            // this working when a plugin calls NavigateToHtml off-thread.
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (_disposed || _webView?.CoreWebView2 == null)
+                    return;
+
+                _webView.NavigateToString(html);
             });
+
+            return;
+        }
     }
 
     protected virtual void Webview_NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)

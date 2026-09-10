@@ -72,23 +72,46 @@ public abstract class OfficePanelBase : UserControl, IDisposable
         // "Attempted to use WebView2 functionality which requires its
         // CoreWebView2 prior to the CoreWebView2 being initialized". The
         // CoreWebView2 check itself has to happen on the UI thread - the
-        // WebView2 control is a DispatcherObject.
-        _ = _webView.EnsureCoreWebView2Async().ContinueWith(t =>
+        // WebView2 control is a DispatcherObject. Chromium additionally fails
+        // transiently with 0x8007139F right after a controller was torn down, so
+        // one retry keeps the preview working instead of leaving a blank sheet.
+        _ = NavigateWhenReadyAsync(html);
+    }
+
+    private async Task NavigateWhenReadyAsync(string html)
+    {
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
-            if (!t.IsCompletedSuccessfully)
+            try
             {
-                ProcessHelper.WriteLog($"[OfficePanel] CoreWebView2 init failed: {t.Exception?.GetBaseException().Message}");
-                return;
+                await _webView.EnsureCoreWebView2Async();
+            }
+            catch (Exception e)
+            {
+                ProcessHelper.WriteLog(
+                    $"[OfficePanel] CoreWebView2 init failed (attempt {attempt}): {e.GetBaseException().Message}");
+
+                if (attempt == 2)
+                    return;
+
+                await Task.Delay(300);
+                continue;
             }
 
-            Dispatcher.BeginInvoke(() =>
+            if (_disposed)
+                return;
+
+            // Touching CoreWebView2 requires the UI thread.
+            await Dispatcher.InvokeAsync(() =>
             {
                 if (_disposed || _webView.CoreWebView2 == null)
                     return;
 
                 _webView.NavigateToString(html);
             });
-        });
+
+            return;
+        }
     }
 
     /// <summary>
