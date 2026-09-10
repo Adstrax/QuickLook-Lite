@@ -233,6 +233,13 @@ public sealed class PluginManager
     private List<(long Seq, string Path)> _pendingLazy = [];
     private readonly Dictionary<IViewer, long> _seqByPlugin = [];
 
+    // v3.32.0: every plugin assembly simple name is loaded at most once. A stale
+    // copy of the same plugin (an incremental build that did not clean up, a
+    // file left over from an older layout, a user plugin shadowing a built-in)
+    // otherwise makes Assembly.LoadFrom throw "Assembly with same name is
+    // already loaded", which showed up in the error log on every start.
+    private readonly HashSet<string> _loadedPluginAssemblies = new(StringComparer.OrdinalIgnoreCase);
+
     // v3.22.0: per-extension match cache for the preview hot path. The first
     // preview of an extension pays the full priority-ordered CanHandle scan;
     // later previews re-run the scan only up to the cached winner (inclusive),
@@ -812,6 +819,21 @@ public sealed class PluginManager
             return;
 
         var libs = Directory.GetFiles(folder, "QuickLook.Plugin.*.dll", SearchOption.AllDirectories);
+        if (libs.Length == 0)
+            return;
+
+        // v3.32.0: load each plugin assembly simple name once - user plugins are
+        // scanned before the built-in folder, so a user copy still wins; a stale
+        // duplicate is skipped instead of failing that plugin's load.
+        var unique = new List<string>(libs.Length);
+        foreach (var lib in libs)
+        {
+            if (_loadedPluginAssemblies.Add(Path.GetFileNameWithoutExtension(lib)))
+                unique.Add(lib);
+            else
+                Debug.WriteLine($"Duplicate plugin assembly skipped: {lib}");
+        }
+        libs = unique.ToArray();
         if (libs.Length == 0)
             return;
 
