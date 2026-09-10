@@ -300,6 +300,9 @@ public class ViewWindowManager : IDisposable
 
     private void BeginShowNewWindow(string path, IViewer matchedPlugin)
     {
+        if (App.IsMemoryDiagnosticsEnabled)
+            Helpers.MemoryDiagnostics.Snapshot("preview-open");
+
         EnsureViewerWindow().UnloadPlugin();
 
         _viewerWindow.BeginShow(matchedPlugin, path, CurrentPluginFailed);

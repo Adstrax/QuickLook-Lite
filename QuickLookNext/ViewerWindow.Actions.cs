@@ -676,11 +676,14 @@ public partial class ViewerWindow
                 Debug.WriteLine(ex);
             }
 
-            _pendingPluginCleanup = null;
+        _pendingPluginCleanup = null;
             _staleViewerContent = null;
         }
 
         base.OnClosing(e);
+
+        if (App.IsMemoryDiagnosticsEnabled)
+            Helpers.MemoryDiagnostics.Snapshot("preview-closed");
 
         ProcessHelper.PerformAggressiveGC();
     }

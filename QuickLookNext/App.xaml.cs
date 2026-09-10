@@ -88,6 +88,12 @@ public partial class App : Application
     // render path really succeeded instead of guessing from pixels.
     internal static bool IsPreviewDiagEnabled { get; private set; }
 
+    // Hidden test hook (/test-memory): record private bytes / working set /
+    // managed heap / LOH / GC counts / WebView2 process count into
+    // ql-smoke\memory.txt at startup, on every preview open/close and every
+    // 10 s while the session runs (see Helpers/MemoryDiagnostics.cs).
+    internal static bool IsMemoryDiagnosticsEnabled { get; private set; }
+
     // The WMI video-controller query used by the blacklist check can take
     // hundreds of milliseconds on some machines. Compute it lazily on a
     // background thread (kicked off in OnStartup) so it never blocks the
@@ -140,6 +146,9 @@ public partial class App : Application
         IsStartupTimingEnabled = e.Args.Contains("/test-startup");
         DisableFocusMonitor = e.Args.Contains("/test-no-focusmonitor");
         IsPreviewDiagEnabled = e.Args.Contains("/test-preview-diag");
+        IsMemoryDiagnosticsEnabled = e.Args.Contains("/test-memory");
+        if (IsMemoryDiagnosticsEnabled)
+            Helpers.MemoryDiagnostics.Start();
         if (IsPreviewDiagEnabled)
         {
             try
