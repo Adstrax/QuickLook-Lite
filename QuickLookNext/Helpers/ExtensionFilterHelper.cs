@@ -20,7 +20,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Xml;
 
 namespace QuickLookNext.Helpers;
 
@@ -87,7 +86,7 @@ public static class ExtensionFilterHelper
         {
             if (_allowlistCache == null)
             {
-                var list = GetSettingNodeValue(AllowlistKey);
+                var list = SettingHelper.Get<string>(AllowlistKey, null);
                 _allowlistCache = ParseExtensionList(list ?? string.Empty);
                 if (list == null || list.Contains(AllowlistPlaceholder, StringComparison.Ordinal))
                     _allowlistCache.UnionWith(DefaultAllowlist);
@@ -106,7 +105,7 @@ public static class ExtensionFilterHelper
         {
             if (_blocklistCache == null)
             {
-                var list = GetSettingNodeValue(BlocklistKey);
+                var list = SettingHelper.Get<string>(BlocklistKey, null);
                 _blocklistCache = ParseExtensionList(list ?? string.Empty);
                 if (list == null || list.Contains(BlocklistPlaceholder, StringComparison.Ordinal))
                     _blocklistCache.UnionWith(DefaultBlocklist);
@@ -245,23 +244,4 @@ public static class ExtensionFilterHelper
         return true;
     }
 
-    private static string GetSettingNodeValue(string key)
-    {
-        var file = Path.Combine(SettingHelper.LocalDataPath, "QuickLookNext.config");
-        if (!File.Exists(file))
-            return null;
-
-        var doc = new XmlDocument();
-        try
-        {
-            doc.Load(file);
-        }
-        catch (XmlException)
-        {
-            return null;
-        }
-
-        var node = doc.SelectSingleNode($"/Settings/{key}");
-        return node?.InnerText;
-    }
 }

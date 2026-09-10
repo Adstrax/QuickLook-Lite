@@ -34,8 +34,33 @@ public static class SettingHelper
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 @"pooi.moe\QuickLookNext\");
 
-    private static readonly Dictionary<string, XmlDocument> FileCache = [];
+    // v3.31.0: how often an already-cached settings file is re-validated with a
+    // stat() call. Within the window every Get() is a plain dictionary lookup.
+    private const int StampCheckIntervalMs = 1000;
+
+    // v3.31.0: settings are read on hot paths - the low-level keyboard hook and
+    // the 100 ms top-bar poll both call Get() from inside their callbacks, where
+    // an XPath query per call (plus the global lock) is a real cost. The parsed
+    // document and the raw node text are therefore cached per domain; the file
+    // itself stays the source of truth and is re-validated once per second so an
+    // external edit (portable mode, hand-edited config) is still picked up.
+    private static readonly Dictionary<string, ConfigFile> FileCache = [];
+    private static readonly Dictionary<string, Dictionary<string, string>> ValueCache = [];
     private static readonly object SyncRoot = new();
+
+    // v3.31.0: unit tests redirect the settings root to a throwaway directory so
+    // they never read or write the real user profile.
+    private static string _dataRootOverride;
+
+    internal static string TestRootOverride
+    {
+        get => _dataRootOverride;
+        set
+        {
+            _dataRootOverride = value;
+            ResetCache();
+        }
+    }
 
     public static T Get<T>(string id, T failsafe = default, string domain = "QuickLookNext")
     {
@@ -44,14 +69,16 @@ public static class SettingHelper
 
         lock (SyncRoot)
         {
-            var file = Path.Combine(LocalDataPath, domain + ".config");
+            if (TryGetCachedValue(domain, id, out var cached))
+                return ConvertValue(cached, failsafe);
 
-            var doc = GetConfigFile(file);
+            var config = GetConfigFile(domain);
+            var node = config.Doc.SelectSingleNode($@"/Settings/{id}");
+            var text = node?.InnerText;
 
-            // try to get setting
-            var s = GetSettingFromXml(doc, id, failsafe);
+            ValueCacheFor(domain)[id] = text;
 
-            return s != null ? s : failsafe;
+            return ConvertValue(text, failsafe);
         }
     }
 
@@ -62,9 +89,24 @@ public static class SettingHelper
 
         lock (SyncRoot)
         {
-            var file = Path.Combine(LocalDataPath, domain + ".config");
+            var config = GetConfigFile(domain);
+            var text = value.ToString();
+            var node = config.Doc.SelectSingleNode($@"/Settings/{id}");
 
-            WriteSettingToXml(GetConfigFile(file), id, value);
+            if (node != null)
+            {
+                node.InnerText = text;
+            }
+            else
+            {
+                var created = config.Doc.CreateNode(XmlNodeType.Element, id, config.Doc.NamespaceURI);
+                created.InnerText = text;
+                config.Doc.SelectSingleNode(@"/Settings")?.AppendChild(created);
+            }
+
+            SaveAtomically(config);
+
+            ValueCacheFor(domain)[id] = text;
         }
     }
 
@@ -75,14 +117,34 @@ public static class SettingHelper
         return File.Exists(lck);
     }
 
-    private static T GetSettingFromXml<T>(XmlDocument doc, string id, T failsafe)
+    /// <summary>
+    /// v3.31.0: resolves the config file of a settings domain. Exposed so
+    /// helpers that have to look at the raw node (e.g. the extension filter)
+    /// share one code path - and so tests can relocate the whole root.
+    /// </summary>
+    public static string ResolveConfigPath(string domain)
     {
-        var v = doc.SelectSingleNode($@"/Settings/{id}");
+        return Path.Combine(_dataRootOverride ?? LocalDataPath, domain + ".config");
+    }
 
+    /// <summary>
+    /// Drops every cached document and value; the next access re-reads the files.
+    /// </summary>
+    internal static void ResetCache()
+    {
+        lock (SyncRoot)
+        {
+            FileCache.Clear();
+            ValueCache.Clear();
+        }
+    }
+
+    private static T ConvertValue<T>(string text, T failsafe)
+    {
         try
         {
-            var result = v == null ? failsafe : (T)Convert.ChangeType(v.InnerText, typeof(T));
-            return result;
+            // A null text means "the node does not exist" (see TryGetCachedValue).
+            return text == null ? failsafe : (T)Convert.ChangeType(text, typeof(T));
         }
         catch (Exception)
         {
@@ -90,28 +152,47 @@ public static class SettingHelper
         }
     }
 
-    private static void WriteSettingToXml(XmlDocument doc, string id, object value)
+    private static bool TryGetCachedValue(string domain, string id, out string text)
     {
-        var v = doc.SelectSingleNode($@"/Settings/{id}");
+        text = null;
 
-        if (v != null)
-        {
-            v.InnerText = value.ToString();
-        }
-        else
-        {
-            var node = doc.CreateNode(XmlNodeType.Element, id, doc.NamespaceURI);
-            node.InnerText = value.ToString();
-            doc.SelectSingleNode(@"/Settings")?.AppendChild(node);
-        }
+        if (!ValueCache.TryGetValue(domain, out var values) || !values.TryGetValue(id, out text))
+            return false;
 
-        doc.Save(new Uri(doc.BaseURI).LocalPath);
+        // The entry was cached from the file, so the document must be loaded.
+        if (!FileCache.TryGetValue(domain, out var config))
+            return false;
+
+        if (!IsStale(config))
+            return true;
+
+        ReloadDomain(domain);
+
+        return ValueCache.TryGetValue(domain, out values) && values.TryGetValue(id, out text);
     }
 
-    private static XmlDocument GetConfigFile(string file)
+    private static Dictionary<string, string> ValueCacheFor(string domain)
     {
-        if (FileCache.ContainsKey(file))
-            return FileCache[file];
+        if (!ValueCache.TryGetValue(domain, out var values))
+        {
+            values = new Dictionary<string, string>(StringComparer.Ordinal);
+            ValueCache[domain] = values;
+        }
+
+        return values;
+    }
+
+    private static ConfigFile GetConfigFile(string domain)
+    {
+        if (FileCache.TryGetValue(domain, out var config) && !IsStale(config))
+            return config;
+
+        return ReloadDomain(domain);
+    }
+
+    private static ConfigFile ReloadDomain(string domain)
+    {
+        var file = ResolveConfigPath(domain);
 
         Directory.CreateDirectory(Path.GetDirectoryName(file));
         if (!File.Exists(file))
@@ -127,6 +208,14 @@ public static class SettingHelper
             CreateNewConfig(file);
             doc.Load(file);
         }
+        catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+        {
+            // v3.31.0: a settings read must never throw on a hot path (the
+            // keyboard hook would take the process down). Fall back to an empty
+            // in-memory document; the file is left untouched on disk.
+            doc = new XmlDocument();
+            doc.LoadXml("<?xml version=\"1.0\"?><Settings />");
+        }
 
         if (doc.SelectSingleNode(@"/Settings") == null)
         {
@@ -134,8 +223,82 @@ public static class SettingHelper
             doc.Load(file);
         }
 
-        FileCache.Add(file, doc);
-        return doc;
+        var config = new ConfigFile { Doc = doc, Path = file };
+        RefreshStamp(config);
+
+        FileCache[domain] = config;
+        ValueCache[domain] = [];
+
+        return config;
+    }
+
+    private static void RefreshStamp(ConfigFile config)
+    {
+        try
+        {
+            var info = new FileInfo(config.Path);
+            if (info.Exists)
+            {
+                config.LastWriteUtc = info.LastWriteTimeUtc;
+                config.Length = info.Length;
+            }
+        }
+        catch
+        {
+            // Best effort; a missing stamp only costs an extra reload.
+        }
+
+        config.NextStampCheckTicks = Environment.TickCount64 + StampCheckIntervalMs;
+    }
+
+    private static bool IsStale(ConfigFile config)
+    {
+        var now = Environment.TickCount64;
+        if (now < config.NextStampCheckTicks)
+            return false;
+
+        config.NextStampCheckTicks = now + StampCheckIntervalMs;
+
+        try
+        {
+            var info = new FileInfo(config.Path);
+            if (!info.Exists)
+                return true;
+
+            var changed = info.LastWriteTimeUtc != config.LastWriteUtc || info.Length != config.Length;
+
+            config.LastWriteUtc = info.LastWriteTimeUtc;
+            config.Length = info.Length;
+
+            return changed;
+        }
+        catch
+        {
+            // If the stamp cannot be read, keep serving the cached document.
+            return false;
+        }
+    }
+
+    private static void SaveAtomically(ConfigFile config)
+    {
+        // v3.31.0: write next to the target and swap it in, so a crash (or a
+        // second instance reading at the same moment) never observes a
+        // half-written config file.
+        var temp = config.Path + ".tmp";
+
+        config.Doc.Save(temp);
+        File.Move(temp, config.Path, overwrite: true);
+
+        RefreshStamp(config);
+    }
+
+    private sealed class ConfigFile
+    {
+        public XmlDocument Doc { get; init; }
+        public string Path { get; init; }
+        public DateTime LastWriteUtc { get; set; }
+        public long Length { get; set; }
+        public long NextStampCheckTicks { get; set; }
     }
 
     private static void CreateNewConfig(string file)
