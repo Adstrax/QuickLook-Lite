@@ -2,6 +2,18 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.32.1
+
+> 打包兼容性修复，功能与 3.32.0 完全一致。
+
+### 修复
+
+- 发布包根目录保留一份 `QuickLook.Common.dll`。3.31.0 的更新器（现网在用）安装前
+  会校验解压目录**根下**存在 `QuickLook-Next.exe` 与 `QuickLook.Common.dll`，
+  而 3.32.0 起恢复的官方 `lib\` 布局会让它误判并拒绝自动更新（表现为「自动更新
+  失败，点击打开下载页面」）。补回这一份 100KB 的副本后，3.31.0 可以直接自动
+  升级到本版；对运行时没有影响（程序集解析 lib\ 与根目录都能找到）
+
 ## QuickLook-Next 3.32.0
 
 > 这一版继续处理 3.30.0 复核出的问题：交付体积、插件架构、内存可观测性与 CI，

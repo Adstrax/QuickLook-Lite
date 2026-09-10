@@ -40,9 +40,13 @@ if (Test-Path $package) {
 New-Item -ItemType Directory -Path $package | Out-Null
 
 # 根目录只放程序入口和它必需的清单/配置
+# v3.32.1: QuickLook.Common.dll 也保留一份在根目录。3.31.0 的更新器（已发布、
+# 现网仍在使用）在安装前会校验「解压目录根下存在 QuickLook-Next.exe 与
+# QuickLook.Common.dll」，lib\ 布局会让它误判为“不是 QuickLook-Next 包”而拒绝
+# 自动更新。多这一份 100KB 的副本对运行时没有任何影响（解析器两处都能找到）。
 foreach ($name in @('QuickLook-Next.exe', 'QuickLook-Next.dll',
         'QuickLook-Next.deps.json', 'QuickLook-Next.runtimeconfig.json',
-        'Translations.config', 'QLPlugin.ico')) {
+        'Translations.config', 'QLPlugin.ico', 'QuickLook.Common.dll')) {
     $src = Join-Path $release $name
     if (Test-Path -LiteralPath $src) {
         Copy-Item -LiteralPath $src -Destination $package -Force
