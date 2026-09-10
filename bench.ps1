@@ -1,4 +1,4 @@
-# bench.ps1 - 预览延迟基准
+﻿# bench.ps1 - 预览延迟基准
 #
 # 依赖 QuickLookNext 内置的隐藏 /test-timing 钩子：常驻实例在每次预览
 # "内容就绪"（spinner 消失）时向 %TEMP%\ql-smoke\timing.txt 追加一条

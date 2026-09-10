@@ -1,4 +1,4 @@
-# 生成用户友好的发布包：Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
+﻿# 生成用户友好的发布包：Build\Release -> Build\Package -> Build\QuickLook-Next-<version>.zip
 #
 # 目录结构（v3.2.0 起）：
 #   根目录：QuickLook-Next.exe（用户双击它）、QuickLook-Next.dll、

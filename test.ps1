@@ -1,4 +1,4 @@
-# QuickLookNext 冒烟测试：每次提交前必须运行并通过。
+﻿# QuickLookNext 冒烟测试：每次提交前必须运行并通过。
 # 覆盖：全量构建 -> 启动 -> 插件加载无失败 -> PNG/文本/SQLite 预览 -> 窗口断言 -> 日志零新增错误。
 #
 # 用法: .\test.ps1
@@ -75,8 +75,15 @@ public class WinEnumRect {
 
 # ---------- 1. 清理旧实例 ----------
 Write-Host "== 1/6 清理旧实例 ==" -ForegroundColor Cyan
-Get-Process -Name QuickLookNext -ErrorAction SilentlyContinue | Stop-Process -Force
+# v3.31.0: 进程名是 "QuickLook-Next"（程序集名带连字符）。旧写法永远匹配不到，
+# 于是托盘里残留的实例会让下面启动的实例作为「第二实例」转发后立即退出，
+# 后续所有断言都在检查一个已经死掉的进程 —— 表现为一整片莫名其妙的失败。
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 3
+if ($null -ne (Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue)) {
+    Write-Host '=== 旧实例无法清理，测试终止（新实例会作为第二实例直接退出）===' -ForegroundColor Red
+    exit 1
+}
 
 # ---------- 2. 构建 ----------
 Write-Host "== 2/6 全量构建 ==" -ForegroundColor Cyan
@@ -425,6 +432,9 @@ else {
 # ---------- 7. 清理 ----------
 Write-Host "== 7/7 清理 ==" -ForegroundColor Cyan
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+# v3.31.0: also clean up anything a preview request may have spawned while the
+# main instance was gone, so the next run starts from a known state.
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 if ($failed) {
     Write-Host "`n=== 测试失败 ===" -ForegroundColor Red

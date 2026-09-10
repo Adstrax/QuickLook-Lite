@@ -1,4 +1,4 @@
-# capture-screenshots.ps1 - launches the app, previews the smoke-test files and
+﻿# capture-screenshots.ps1 - launches the app, previews the smoke-test files and
 # captures each window to docs\screenshots for the README.
 #
 # 用法: powershell -File Scripts\capture-screenshots.ps1

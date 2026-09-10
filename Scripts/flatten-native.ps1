@@ -1,4 +1,4 @@
-# flatten-native.ps1
+﻿# flatten-native.ps1
 # 将本工程（插件）引用的 RID 特定原生资产（runtimes\<rid>\native\*.dll）
 # 从 NuGet 缓存复制到插件输出根目录，供 Assembly.LoadFrom 加载的插件在运行时解析。
 #
