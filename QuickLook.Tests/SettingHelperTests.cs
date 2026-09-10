@@ -117,10 +117,19 @@ internal class SettingHelperTests : SettingsFixture
         Assert.Equal(1, SettingHelper.Get("A", 0), "cached value");
 
         // Simulate another tool (or an older build) editing the config.
+        var path = ConfigPath("QuickLookNext");
         var doc = new XmlDocument();
-        doc.Load(ConfigPath("QuickLookNext"));
+        doc.Load(path);
         doc.SelectSingleNode("/Settings/A").InnerText = "9";
-        doc.Save(ConfigPath("QuickLookNext"));
+        doc.Save(path);
+
+        // The store re-validates the file at most once per second, and the change
+        // is only detected when the file stamp actually differs. Windows updates
+        // file timestamps on a ~15 ms clock tick, so an edit made immediately
+        // after our own write can carry the very same stamp (and the value "1" to
+        // "9" keeps the length identical). Pin an explicit newer stamp to keep
+        // this test deterministic instead of relying on tick alignment.
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(2));
 
         // The file stamp is re-validated at most once per second.
         Thread.Sleep(1200);
