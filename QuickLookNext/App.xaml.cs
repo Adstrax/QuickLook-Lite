@@ -554,8 +554,10 @@ public partial class App : Application
         if (DateTime.Now.Ticks - SettingHelper.Get<long>("LastUpdateTicks") < TimeSpan.FromDays(30).Ticks)
             return;
 
+        // v3.31.0: the "last checked" stamp is written by Updater itself, once
+        // the release API call actually succeeded (see Updater.CheckForUpdates).
+        // Writing it here marked the check as done even when it failed offline.
         _ = Task.Delay(120 * 1000).ContinueWith(_ => Updater.CheckForUpdates(true));
-        SettingHelper.Set("LastUpdateTicks", DateTime.Now.Ticks);
     }
 
     private void CheckAndRegisterPluginIcon()
