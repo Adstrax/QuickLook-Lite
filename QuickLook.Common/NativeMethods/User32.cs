@@ -248,6 +248,11 @@ public static class User32
     public const uint GA_ROOT = 2;
     public const uint GA_ROOTOWNER = 3;
 
-    public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
-    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        // v3.33.0: shell list view selection changes (Explorer / desktop), used by
+        // FocusMonitor to follow the selection without polling.
+        public const uint EVENT_OBJECT_SELECTION = 0x8006;
+        public const uint EVENT_OBJECT_SELECTIONWITHIN = 0x8009;
+        public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 }
