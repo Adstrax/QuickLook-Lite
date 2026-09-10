@@ -20,6 +20,10 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 
+// v3.31.0: QuickLook.Tests covers internal helpers such as the updater's
+// download URL allow list.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("QuickLook.Tests")]
+
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.

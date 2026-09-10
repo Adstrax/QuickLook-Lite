@@ -1,6 +1,11 @@
 ﻿using System.Reflection;
 using System.Runtime.InteropServices;
 
+// v3.31.0: QuickLook.Tests redirects the settings root to a throwaway directory
+// (SettingHelper.TestRootOverride). Declared here because both projects set
+// GenerateAssemblyInfo=false, so the MSBuild InternalsVisibleTo item is skipped.
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("QuickLook.Tests")]
+
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
