@@ -20,7 +20,6 @@ using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
 using System;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -205,17 +204,10 @@ public sealed class Plugin : IViewer
     {
         context.SetPreferredSizeFit(_pdfControl.GetDesiredControlSize(), 0.9);
 
-        if (Window.GetWindow(_pdfControl) is not Window window)
-            return;
-
-        // Call the viewer window private method using reflection
-        // QuickLookNext.ViewerWindow.ResizeAndCentreExistingWindow
-        var resizeMethod = window.GetType().GetMethod("ResizeAndCentreExistingWindow",
-            BindingFlags.NonPublic | BindingFlags.Instance);
-        if (resizeMethod == null)
-            return;
-
-        var newRect = (Rect)resizeMethod.Invoke(window, [context.PreferredSize]);
-        window.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+        // v3.31.0: ask the host through the public ContextObject API instead of
+        // reflecting into QuickLookNext.ViewerWindow's private
+        // ResizeAndCentreExistingWindow method. The plugin only needs
+        // QuickLook.Common, so host internals can change freely again.
+        context.ApplyPreferredSizeNow();
     }
 }

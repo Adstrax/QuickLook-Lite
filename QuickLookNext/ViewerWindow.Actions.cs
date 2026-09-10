@@ -253,6 +253,23 @@ public partial class ViewerWindow
         return new Rect(pxLocation, size);
     }
 
+    /// <summary>
+    /// v3.31.0: handles <see cref="ContextObject.ApplyPreferredSizeNow"/> - a
+    /// plugin that measured its content asks the window to follow the new
+    /// <see cref="ContextObject.PreferredSize"/> immediately. Replaces the
+    /// reflection call plugins used to make into this window.
+    /// </summary>
+    private void ApplyResizeRequest(Size size)
+    {
+        // A maximized window keeps its size (same rule as PositionWindow).
+        if (!IsLoaded || WindowState == WindowState.Maximized)
+            return;
+
+        var newRect = ResizeAndCentreExistingWindow(size);
+
+        this.MoveWindow(newRect.Left, newRect.Top, newRect.Width, newRect.Height);
+    }
+
     internal void UnloadPlugin()
     {
         // The focused element will not processed by GC: https://stackoverflow.com/questions/30848939/memory-leak-due-to-window-efectivevalues-retention

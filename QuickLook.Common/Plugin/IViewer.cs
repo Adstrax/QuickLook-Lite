@@ -19,6 +19,27 @@ namespace QuickLook.Common.Plugin;
 
 /// <summary>
 /// Interface implemented by every QuickLook.Plugin
+/// <para>
+/// v3.31.0: the lifecycle is worth spelling out explicitly, because it is not
+/// obvious from the member list and getting it wrong fails silently:
+/// </para>
+/// <list type="bullet">
+/// <item><description><see cref="Init"/> runs <b>once per plugin type</b>, on the
+/// instance the host keeps for matching, on a background thread (possibly in
+/// parallel with other plugins). Anything it prepares must therefore live in
+/// static state - instance fields set by Init are <b>not</b> visible to the
+/// instance that later renders a preview.</description></item>
+/// <item><description><see cref="CanHandle"/> is called on that same long-lived
+/// instance, for any file the user previews. Keep it cheap and free of side
+/// effects; it may also be called on a thread pool thread.</description></item>
+/// <item><description><see cref="Prepare"/>, <see cref="View"/> and
+/// <see cref="Cleanup"/> run on a <b>fresh instance created for every preview</b>.
+/// Never rely on instance fields surviving between previews.</description></item>
+/// <item><description><see cref="View"/> must eventually set
+/// <c>context.IsBusy = false</c>; do slow work on a background thread and assign
+/// <c>context.ViewerContent</c> (or <c>context.PendingViewerContent</c>) when the
+/// content is ready.</description></item>
+/// </list>
 /// </summary>
 public interface IViewer
 {

@@ -99,6 +99,10 @@ public partial class ViewerWindow : Window
 
         ContextObject.PropertyChanged += ContextObject_PropertyChanged;
 
+        // v3.31.0: plugins ask for a resize through ContextObject instead of
+        // reflecting into this window (see ContextObject.ApplyPreferredSizeNow).
+        ContextObject.ResizeRequested += ApplyResizeRequest;
+
         InitializeComponent();
 
         // v1.2.1: start with the user's saved light/dark choice (None = follow system).

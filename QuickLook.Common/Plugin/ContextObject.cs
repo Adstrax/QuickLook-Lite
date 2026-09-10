@@ -264,6 +264,37 @@ public class ContextObject : INotifyPropertyChanged
         return ratio;
     }
 
+    /// <summary>
+    /// v3.31.0: raised when a plugin asks the host to re-apply
+    /// <see cref="PreferredSize"/> to the preview window right away (see
+    /// <see cref="ApplyPreferredSizeNow"/>). The viewer window subscribes to it;
+    /// plugins only call the method, so they no longer have to reach into the
+    /// host window through reflection.
+    /// </summary>
+    public event Action<Size> ResizeRequested;
+
+    /// <summary>
+    /// v3.31.0: asks the host to resize and recentre the preview window to the
+    /// current <see cref="PreferredSize"/> immediately - used after a plugin has
+    /// measured its content (e.g. the first page of a PDF) and the window has to
+    /// follow before that content is shown.
+    /// <para>
+    /// Returns false when no host is listening (for example in plugin unit tests,
+    /// or when the context is used outside the viewer window); a plugin should
+    /// then simply continue without a resize.
+    /// </para>
+    /// </summary>
+    public bool ApplyPreferredSizeNow()
+    {
+        var handler = ResizeRequested;
+        if (handler == null)
+            return false;
+
+        handler(PreferredSize);
+
+        return true;
+    }
+
     public void Reset()
     {
         Title = string.Empty;
