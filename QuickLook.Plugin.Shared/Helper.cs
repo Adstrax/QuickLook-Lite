@@ -20,9 +20,14 @@ using System.IO;
 using System.Text;
 using Microsoft.Web.WebView2.Core;
 
-namespace QuickLook.Plugin.HtmlViewer;
+namespace QuickLook.Plugin.Shared;
 
-internal static class Helper
+/// <summary>
+/// v3.32.0: shared WebView2 helpers (availability probe, file URL conversion).
+/// Public because the shared kit is consumed by the Html / Markdown / Office /
+/// CHM / Mail / Font / SVG plugins.
+/// </summary>
+public static class Helper
 {
     public static bool IsWebView2Available()
     {
@@ -63,7 +68,7 @@ internal static class Helper
         }
     }
 
-    internal static string GetUrlPath(string url)
+    public static string GetUrlPath(string url)
     {
         var index = -1;
         var lines = File.ReadAllLines(url);

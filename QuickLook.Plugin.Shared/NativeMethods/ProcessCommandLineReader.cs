@@ -19,7 +19,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace QuickLook.Plugin.HtmlViewer.NativeMethods;
+namespace QuickLook.Plugin.Shared.NativeMethods;
 
 /// <summary>
 /// Reads another process's command line without pulling in System.Management.

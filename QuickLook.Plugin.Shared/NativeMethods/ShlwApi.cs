@@ -21,7 +21,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace QuickLook.Plugin.HtmlViewer.NativeMethods;
+namespace QuickLook.Plugin.Shared.NativeMethods;
 
 internal static class ShlwApi
 {

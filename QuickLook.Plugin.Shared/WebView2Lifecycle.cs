@@ -17,7 +17,7 @@
 
 using Microsoft.Web.WebView2.Wpf;
 using QuickLook.Common.Helpers;
-using QuickLook.Plugin.HtmlViewer.NativeMethods;
+using QuickLook.Plugin.Shared.NativeMethods;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,7 +25,7 @@ using System.IO;
 using System.Threading;
 using System.Windows;
 
-namespace QuickLook.Plugin.HtmlViewer;
+namespace QuickLook.Plugin.Shared;
 
 /// <summary>
 /// v3.29.0: stops the WebView2 (Chromium) process group from lingering after

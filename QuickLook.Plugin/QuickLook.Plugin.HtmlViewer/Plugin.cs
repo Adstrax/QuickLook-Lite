@@ -17,6 +17,7 @@
 
 using QuickLook.Common.Plugin;
 using QuickLook.Common.Plugin.MoreMenu;
+using QuickLook.Plugin.Shared;
 using System;
 using System.Collections.Generic;
 using System.IO;
