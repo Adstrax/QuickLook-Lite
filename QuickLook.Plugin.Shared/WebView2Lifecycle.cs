@@ -97,6 +97,18 @@ public static class WebView2Lifecycle
 
     private static void OnIdle()
     {
+        // v3.34.0: drop the pooled controls *before* reaping the browser
+        // processes, so the pool never hands out a controller whose Chromium side
+        // has just been killed.
+        try
+        {
+            WebView2ControlPool.ClearIdle();
+        }
+        catch
+        {
+            // best effort
+        }
+
         List<WebView2> leftovers;
         lock (Sync)
         {

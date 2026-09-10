@@ -2,6 +2,36 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.34.0
+
+> 性能版本：Office 文档预览的 WebView2 控制器改为复用，稳定态延迟降到 1/4。
+
+### 速度（WebView2 控制器复用）
+
+- 新增 `QuickLook.Shared.WebView2ControlPool`：把已经初始化好的 WebView2 控件
+  （含 Chromium 控制器）放进池里复用，避免每个 Office 文档都重新创建一个控制器
+  （实测每次约 300–400 ms）
+- Office 面板（doc / docx / xls / xlsx / ppt / pptx / odt / ods / odp …）改用该池：
+  实测同一会话内 xlsx **478 ms → 120 ms → 92 ms**，docx / pptx 稳定在 100–130 ms，
+  且日志零新增
+- 池与既有的闲置回收协同：进入池的控件会取消「活跃」登记，因此
+  `WebView2IdleTimeoutSeconds`（默认 5 分钟）到点仍然会关掉 Chromium 进程组，
+  空闲内存表现不变；回收前会先清空池，避免发出「浏览器已被杀」的坏控件
+- 控件的停放/取出都在 UI 线程完成，并按启动参数分桶（例如暗色主题下 PlantUML 用的
+  `--enable-features=WebContentsForceDark` 不会串到别的预览）
+
+### 说明（同类优化为何暂缓）
+
+- `WebpagePanel` 家族（Markdown / HTML / CHM / Mail / Font / SVG / draw.io /
+  Graphviz / PlantUML / Excalidraw）暂时**没有**启用该池：这些面板会在同一个控件上
+  挂自己的 `NavigationStarting` / `WebResourceRequested` 处理器，并且 FontViewer 依赖
+  「`CoreWebView2 != null` 说明页面还是我的」这一前提（复用后会 `Reload` 到上一个
+  页面，字体页面永远不加载，`WaitForFontSent` 白等 1.5 s 超时）。试验数据：ttf
+  从 465 ms 退化到 1.6 s，md 也从 ~110 ms 退化到 ~180 ms。要拿下这部分，需要先做
+  「控件始终停在一个可见 HWND 的宿主窗口里」+「面板级状态所有权」两件事，属于下一轮
+
+构建 0 warning / 0 error；单元测试全部通过；真实场景冒烟测试全部通过。
+
 ## QuickLook-Next 3.33.0
 
 > 性能版本：把「选中文件后预览多快出现」这条最常用路径的等待时间砍掉一半以上。

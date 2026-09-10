@@ -20,7 +20,7 @@ namespace QuickLook.Plugin.OfficeViewer;
 /// </summary>
 public abstract class OfficePanelBase : UserControl, IDisposable
 {
-    private readonly WebView2 _webView = new();
+    private WebView2 _webView;
     private bool _disposed;
 
     protected OfficePanelBase()
@@ -35,10 +35,9 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             ? WpfColor.FromRgb(0x17, 0x17, 0x17)
             : WpfColor.FromRgb(0xF2, 0xF2, 0xF2);
 
-        _webView.CreationProperties = new CoreWebView2CreationProperties
-        {
-            UserDataFolder = Path.Combine(SettingHelper.LocalDataPath, @"WebView2_Data\"),
-        };
+        // v3.34.0: take a warm control from the pool instead of creating a new
+        // Chromium controller for every document (~300-400 ms each).
+        _webView = WebView2ControlPool.Acquire();
         // The control background only shows before the page paints; the page
         // itself is an opaque white paper surface (v3.17.0).
         _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(
@@ -146,10 +145,20 @@ public abstract class OfficePanelBase : UserControl, IDisposable
     {
         _disposed = true;
 
-        // v3.29.0: stop tracking first so the idle recycler counts this
-        // control as gone even if Dispose below throws.
-        WebView2Lifecycle.Unregister(_webView);
-        _webView.Dispose();
+        var control = _webView;
+        _webView = null;
+
+        if (control == null)
+            return;
+
+        // v3.29.0/v3.34.0: stop tracking so the idle recycler counts this control
+        // as gone, then hand it back to the pool.
+        WebView2Lifecycle.Unregister(control);
+
+        if (Content is Border border && ReferenceEquals(border.Child, control))
+            border.Child = null;
+
+        WebView2ControlPool.Release(control);
     }
 
     private static string ErrorHtml(Exception error)
