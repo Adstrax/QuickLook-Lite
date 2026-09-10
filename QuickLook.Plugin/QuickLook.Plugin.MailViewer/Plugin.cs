@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLook program.
 //
@@ -17,7 +17,7 @@
 
 using MsgReader;
 using QuickLook.Common.Plugin;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using System;
 using System.IO;
 using System.Linq;

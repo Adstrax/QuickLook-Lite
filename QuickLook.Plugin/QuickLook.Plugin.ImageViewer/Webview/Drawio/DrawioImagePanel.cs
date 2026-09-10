@@ -23,7 +23,7 @@ using System.Text;
 
 #if false // The current draw.io rendering is not suitable for force dark mode
 using QuickLook.Common.Helpers;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using System.Reflection;
 #endif
 

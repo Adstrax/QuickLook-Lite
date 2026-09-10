@@ -1,4 +1,4 @@
-﻿// Copyright © 2017-2026 QL-Win Contributors
+// Copyright © 2017-2026 QL-Win Contributors
 //
 // This file is part of QuickLookNext program.
 //
@@ -18,7 +18,7 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using QuickLook.Common.Helpers;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

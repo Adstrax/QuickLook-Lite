@@ -86,6 +86,14 @@
             <Name>QuickLook.Common</Name>
             <Private>False</Private>
         </ProjectReference>
+        <!--
+            v3.32.0: this one IS used - ThumbnailViewer renders its decoded
+            thumbnails through ImageViewer's ImagePanel (zoom / save as / invert).
+            PDFViewer needs the same panel from XAML. Keeping the reference means
+            both need ImageViewer's assembly at runtime; decoupling them requires
+            extracting ImagePanel into QuickLook.Plugin.Shared - the next step for
+            this group (documented, not done here).
+        -->
         <ProjectReference Include="..\QuickLook.Plugin.ImageViewer\QuickLook.Plugin.ImageViewer.csproj">
             <Project>{FE5A5111-9607-4721-A7BE-422754002ED8}</Project>
             <Name>QuickLook.Plugin.ImageViewer</Name>

@@ -13,7 +13,11 @@
 #   .\Scripts\pack-release.ps1             # 只整理到 Build\Package
 #   .\Scripts\pack-release.ps1 -MakeZip    # 整理并生成 zip
 
-param([switch]$MakeZip)
+param(
+    [switch]$MakeZip,
+    # v3.32.0: 一个发布包只带一种架构的原生运行库（默认 x64）。
+    [ValidateSet('x64', 'arm64')][string]$Architecture = 'x64'
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -78,7 +82,22 @@ $dedupeLibNames = @(
     'Microsoft.Web.WebView2.Core.dll',
     'Microsoft.Web.WebView2.WinForms.dll',
     'Microsoft.Web.WebView2.Wpf.dll',
-    'WebView2Loader.dll'
+    'WebView2Loader.dll',
+    # v3.32.0: 共享 WebView2 宿主库（Html/Markdown/Office/CHM/Mail/Font/SVG 共用）
+    'QuickLook.Shared.dll',
+    # v3.32.0: 实测字节完全一致的其它重复项（MediaInfoViewer/VideoViewer 的
+    # 托管 MediaInfo 程序集、DbViewer/OfficeViewer 的 MiniExcel 等）。
+    # 只有哈希一致的副本才会被移除，因此列表里多写几个名字是安全的。
+    'QuickLook.MediaInfo.dll',
+    'MiniExcel.dll',
+    'CommunityToolkit.HighPerformance.dll',
+    'Google.Protobuf.dll',
+    'Microsoft.Data.Sqlite.dll',
+    'SQLitePCLRaw.core.dll',
+    'LiteDB.dll',
+    'ELFSharp.dll',
+    'CsvHelper.dll',
+    'MsgReader.dll'
 )
 
 # 确保去重清单里的每个文件在 lib\ 有基准副本（没有就从插件目录取一份）
@@ -112,6 +131,36 @@ foreach ($name in $dedupeLibNames) {
 }
 Write-Host "已去重共享依赖：移除 $removedDedup 个重复文件"
 
+# v3.32.0: 同一个插件程序集只应存在一份。增量构建不会清理旧产物，历史上
+# PDFViewer 目录里就残留过一份 QuickLook.Plugin.HtmlViewer.dll，运行时会触发
+# “Assembly with same name is already loaded”。打包时把重复副本清掉，只保留
+# 与程序集同名的那个插件目录里的副本（找不到就保留最新的那份）。
+$pluginDllGroups = Get-ChildItem -LiteralPath (Join-Path $package 'QuickLook.Plugin') `
+    -Recurse -File -Filter 'QuickLook.Plugin.*.dll' -ErrorAction SilentlyContinue |
+    Group-Object Name
+$removedDuplicates = 0
+foreach ($group in $pluginDllGroups) {
+    if ($group.Count -le 1) {
+        continue
+    }
+
+    $expectedFolder = [System.IO.Path]::GetFileNameWithoutExtension($group.Name)
+    $keeper = $group.Group |
+        Where-Object { (Split-Path (Split-Path $_.FullName -Parent) -Leaf) -eq $expectedFolder } |
+        Select-Object -First 1
+    if ($null -eq $keeper) {
+        $keeper = $group.Group | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    }
+
+    $group.Group | Where-Object { $_.FullName -ne $keeper.FullName } | ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Force
+        $removedDuplicates++
+    }
+}
+if ($removedDuplicates -gt 0) {
+    Write-Host "已移除重复的插件程序集副本：$removedDuplicates 个"
+}
+
 # 发布包不需要调试符号，也不需要 .NET Framework 时代的 App.config
 Get-ChildItem -LiteralPath $package -Recurse -Filter *.pdb |
     Remove-Item -Force
@@ -142,14 +191,18 @@ if ((Test-Path -LiteralPath $videoRootMediaInfo) -and
     Write-Host '已移除 VideoViewer 根目录冗余的 MediaInfo.dll'
 }
 
-# v3.10.0: x64 发布包不需要 x86/arm64 的原生运行库（ChmViewer 的
-# runtimes\win-x86 / win-arm64 只有 WebView2Loader，x64 包用不到）。
-foreach ($archDir in @('win-x86', 'win-arm64')) {
-    $chmArch = Join-Path $package "QuickLook.Plugin\QuickLook.Plugin.ChmViewer\runtimes\$archDir"
-    if (Test-Path -LiteralPath $chmArch) {
-        Remove-Item -LiteralPath $chmArch -Recurse -Force
-        Write-Host "已移除 ChmViewer 的 $archDir 运行库"
-    }
+# v3.10.0/v3.32.0: 发布包只保留目标架构的原生运行库。win-x86 永远不会被用到
+# （本项目不产出 x86 版本），非目标架构的目录（ChmViewer / OfficeViewer 里的
+# WebView2Loader 等）也一并移除，避免同一个包同时带上多份加载器。
+$keepArch = if ($Architecture -eq 'arm64') { 'win-arm64' } else { 'win-x64' }
+$dropArchDirs = @('win-x86', 'win-arm64', 'win-x64') | Where-Object { $_ -ne $keepArch }
+$pluginRoot = Join-Path $package 'QuickLook.Plugin'
+foreach ($archDir in $dropArchDirs) {
+    Get-ChildItem -LiteralPath $pluginRoot -Recurse -Directory -Filter $archDir -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+            Write-Host "已移除 $($_.FullName.Substring($package.Length + 1))"
+        }
 }
 
 # 便携标记：设置数据目录跟随程序目录
@@ -169,6 +222,37 @@ QuickLook-Next 使用说明
 '@
 Set-Content -LiteralPath (Join-Path $package '使用说明.txt') `
     -Value $firstRunNote -Encoding UTF8
+
+# v3.32.0: 打包自检 + 体积报告。发布前先确认包里确实有启动必需的文件，
+# 并让「这个包有多大、大头是什么」一眼可见（历史上出现过手工打包漏掉
+# lib 目录、或把 pdb 打进去的情况）。
+foreach ($required in @('QuickLook-Next.exe', 'QuickLook-Next.dll',
+        'QuickLook-Next.deps.json', 'QuickLook-Next.runtimeconfig.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
+        throw "发布包缺少必需文件：$required"
+    }
+}
+if (-not (Test-Path -LiteralPath (Join-Path $package 'lib\QuickLook.Common.dll'))) {
+    throw '发布包缺少 lib\QuickLook.Common.dll'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $package 'QuickLook.Plugin'))) {
+    throw '发布包缺少 QuickLook.Plugin'
+}
+
+$leftover = @(Get-ChildItem -LiteralPath $package -Recurse -File |
+    Where-Object { $_.Extension -in '.pdb', '.xml' })
+if ($leftover.Count -gt 0) {
+    $leftover | Remove-Item -Force
+    Write-Host "已清理打包后残留的调试/文档文件：$($leftover.Count) 个"
+}
+
+$packageFiles = Get-ChildItem -LiteralPath $package -Recurse -File
+Write-Host ("发布包体积：{0} MB（{1} 个文件）" -f `
+        [math]::Round((($packageFiles | Measure-Object Length -Sum).Sum / 1MB), 1), $packageFiles.Count)
+Write-Host '体积前十：'
+$packageFiles | Sort-Object Length -Descending | Select-Object -First 10 | ForEach-Object {
+    Write-Host ("  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.FullName.Substring($package.Length + 1))
+}
 
 if (-not $MakeZip) {
     Write-Host "已整理到：$package"
@@ -209,3 +293,4 @@ try {
 Remove-Item -LiteralPath (Join-Path $package 'portable.lock')
 
 Write-Host "已生成发布包：$zip"
+Write-Host ("压缩包体积：{0} MB" -f [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1))

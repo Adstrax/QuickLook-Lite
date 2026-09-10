@@ -2,7 +2,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using QuickLook.Common.Helpers;
 using QuickLook.Common.Plugin;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -67,8 +67,28 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     protected void Navigate(string html)
     {
-        _ = _webView.EnsureCoreWebView2Async().ContinueWith(_ =>
-            Dispatcher.BeginInvoke(() => _webView.NavigateToString(html)));
+        // v3.32.0: guard the navigation on a successfully initialized controller.
+        // Navigating after a faulted EnsureCoreWebView2Async threw
+        // "Attempted to use WebView2 functionality which requires its
+        // CoreWebView2 prior to the CoreWebView2 being initialized". The
+        // CoreWebView2 check itself has to happen on the UI thread - the
+        // WebView2 control is a DispatcherObject.
+        _ = _webView.EnsureCoreWebView2Async().ContinueWith(t =>
+        {
+            if (!t.IsCompletedSuccessfully)
+            {
+                ProcessHelper.WriteLog($"[OfficePanel] CoreWebView2 init failed: {t.Exception?.GetBaseException().Message}");
+                return;
+            }
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed || _webView.CoreWebView2 == null)
+                    return;
+
+                _webView.NavigateToString(html);
+            });
+        });
     }
 
     /// <summary>

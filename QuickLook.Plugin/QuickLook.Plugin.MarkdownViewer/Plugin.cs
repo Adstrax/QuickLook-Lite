@@ -16,7 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using QuickLook.Common.Plugin;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using System;
 using System.IO;
 using System.Linq;

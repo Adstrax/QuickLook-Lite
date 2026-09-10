@@ -17,7 +17,7 @@
 
 using Microsoft.Web.WebView2.Core;
 using QuickLook.Common.Helpers;
-using QuickLook.Plugin.HtmlViewer;
+using QuickLook.Plugin.Shared;
 using QuickLook.Plugin.ImageViewer.Webview.Svg;
 using System;
 using System.IO;

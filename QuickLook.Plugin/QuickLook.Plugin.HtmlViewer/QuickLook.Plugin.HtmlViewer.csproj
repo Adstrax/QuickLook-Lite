@@ -77,14 +77,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Remove="WebpagePanel.xaml.cs" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Page Remove="WebpagePanel.xaml" />
-    </ItemGroup>
-
-    <ItemGroup>
         <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44">
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
@@ -97,6 +89,11 @@
         <ProjectReference Include="..\..\QuickLook.Common\QuickLook.Common.csproj">
             <Project>{85FDD6BA-871D-46C8-BD64-F6BB0CB5EA95}</Project>
             <Name>QuickLook.Common</Name>
+            <Private>False</Private>
+        </ProjectReference>
+        <!-- v3.32.0: the WebView2 host now lives in the shared kit. -->
+        <ProjectReference Include="..\..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj">
+            <Name>QuickLook.Shared</Name>
             <Private>False</Private>
         </ProjectReference>
     </ItemGroup>

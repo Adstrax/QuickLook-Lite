@@ -96,6 +96,12 @@
             <Name>QuickLook.Common</Name>
             <Private>False</Private>
         </ProjectReference>
+        <!--
+            v3.32.0: still required - PdfViewerControl.xaml hosts ImageViewer's
+            ImagePanel (<ImagePanel ... assembly=QuickLook.Plugin.ImageViewer>) for
+            the raster fallback. Decoupling it means extracting that panel into
+            QuickLook.Plugin.Shared, the same work ThumbnailViewer needs.
+        -->
         <ProjectReference Include="..\QuickLook.Plugin.ImageViewer\QuickLook.Plugin.ImageViewer.csproj">
             <Project>{fe5a5111-9607-4721-a7be-422754002ed8}</Project>
             <Name>QuickLook.Plugin.ImageViewer</Name>

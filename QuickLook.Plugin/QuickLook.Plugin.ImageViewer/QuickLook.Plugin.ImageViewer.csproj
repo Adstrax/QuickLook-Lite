@@ -146,9 +146,9 @@
             <Name>QuickLook.Common</Name>
             <Private>False</Private>
         </ProjectReference>
-        <ProjectReference Include="..\QuickLook.Plugin.HtmlViewer\QuickLook.Plugin.HtmlViewer.csproj">
+        <ProjectReference Include="..\..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj">
             <Project>{CE22A1F3-7F2C-4EC8-BFDE-B58D0EB625FC}</Project>
-            <Name>QuickLook.Plugin.HtmlViewer</Name>
+            <Name>QuickLook.Shared</Name>
             <Private>False</Private>
         </ProjectReference>
     </ItemGroup>

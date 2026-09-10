@@ -1,0 +1,95 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        v3.32.0: shared WebView2 host (WebpagePanel / Helper / WebView2Lifecycle).
+
+        Html / Markdown / Office / CHM / Mail / Font / SVG-Image previews all
+        render through the same host. It used to live inside the HtmlViewer
+        plugin, which made seven plugins depend on one plugin's assembly; the
+        shared code now lives in its own library, so every plugin only depends
+        on QuickLook.Common plus this kit - and HtmlViewer can be dropped without
+        breaking the others.
+
+        The assembly is named QuickLook.Shared (not QuickLook.Plugin.*) so the
+        plugin loader - which discovers viewers by the "QuickLook.Plugin.*.dll"
+        pattern - never enumerates this library as a plugin.
+    -->
+    <PropertyGroup>
+        <OutputType>Library</OutputType>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <AssemblyName>QuickLook.Shared</AssemblyName>
+        <RootNamespace>QuickLook.Plugin.Shared</RootNamespace>
+        <UseWPF>true</UseWPF>
+        <UseWindowsForms>true</UseWindowsForms>
+        <LangVersion>latest</LangVersion>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <PlatformTarget>AnyCPU</PlatformTarget>
+        <Platforms>AnyCPU;x64;ARM64</Platforms>
+        <NoWarn>$(NoWarn);CA1416;SYSLIB0050</NoWarn>
+        <OutputPath>..\Build\Release\</OutputPath>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+        <OutputPath>..\Build\Debug\</OutputPath>
+        <DefineConstants>DEBUG;TRACE</DefineConstants>
+        <DebugType>full</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <OutputPath>..\Build\Release\</OutputPath>
+        <DefineConstants>TRACE</DefineConstants>
+        <Optimize>true</Optimize>
+        <DebugType>pdbonly</DebugType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\QuickLook.Common\QuickLook.Common.csproj">
+            <Project>{85FDD6BA-871D-46C8-BD64-F6BB0CB5EA95}</Project>
+            <Name>QuickLook.Common</Name>
+            <Private>False</Private>
+        </ProjectReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\GitVersion.cs">
+            <Link>Properties\GitVersion.cs</Link>
+        </Compile>
+    </ItemGroup>
+
+    <!--
+        v3.32.0: this project outputs to the application root, so the managed
+        WebView2 assemblies land there - and WebView2 resolves its native loader
+        next to them. flatten-native.ps1 always writes to
+        Build\<cfg>\QuickLook.Plugin\<project>\, which is the wrong place for
+        this project, so the loader is copied explicitly. Missing it made every
+        Office/Markdown/HTML preview fail with
+        "Unable to load DLL 'WebView2Loader.dll' ... 0x8007007E".
+    -->
+    <ItemGroup Condition="'$(Platform)' != 'ARM64'">
+        <Content Include="$(NuGetPackageRoot)\microsoft.web.webview2\1.0.4078.44\runtimes\win-x64\native\WebView2Loader.dll">
+            <Link>WebView2Loader.dll</Link>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(Platform)' == 'ARM64'">
+        <Content Include="$(NuGetPackageRoot)\microsoft.web.webview2\1.0.4078.44\runtimes\win-arm64\native\WebView2Loader.dll">
+            <Link>WebView2Loader.dll</Link>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+
+    <Target Name="FlattenRuntimeNative" AfterTargets="Build">
+        <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="powershell -NoProfile -ExecutionPolicy Bypass -file &quot;$(MSBuildThisFileDirectory)..\Scripts\flatten-native.ps1&quot; -AssetsPath &quot;$(MSBuildProjectDirectory)\obj\project.assets.json&quot; -ProjectDir &quot;$(MSBuildProjectDirectory)&quot; -Configuration &quot;$(Configuration)&quot; -Platform &quot;$(Platform)&quot;" />
+    </Target>
+
+</Project>
