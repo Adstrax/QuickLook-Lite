@@ -2,6 +2,61 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.32.0
+
+> 这一版继续处理 3.30.0 复核出的问题：交付体积、插件架构、内存可观测性与 CI，
+> 并修掉了验证过程中暴露的三个真实缺陷。
+
+### 交付体积（未压缩 177.9MB → 157.9MB，压缩包 70.7MB → 61.4MB）
+
+- 发布流程改用仓库里的 `Scripts\pack-release.ps1`：根目录只留程序入口与清单，其余
+  托管库进 `lib\`，共享依赖去重（本次移除 61 个完全一致的重复文件），剔除
+  pdb / xml / 插件 deps.json，去掉 VideoViewer 根目录重复的 MediaInfo.dll（-8.1MB）
+  与非目标架构的 WebView2Loader（win-x86 / win-arm64）
+- 打包脚本新增自检与体积报告：缺少入口文件直接报错，并打印包体积与体积前十
+- 说明：23.7MB 的 `Microsoft.Windows.SDK.NET.dll` 是 Windows 分享面板
+  （ShareHelper 的 DataTransferManager interop）必需的 WinRT 投影，无法裁剪；
+  体积再往下压需要把大插件改成按需下载，属于下一阶段的功能改造
+
+### 插件架构（依赖治理）
+
+- 新增 `QuickLook.Shared`（WebView2 宿主：WebpagePanel / Helper / WebView2Lifecycle），
+  Html / Markdown / Office / CHM / Mail / Font / SVG 七个插件不再依赖 HtmlViewer
+  插件本身，插件只依赖 QuickLook.Common 与这个共享库
+- 插件加载按程序集简单名去重：增量构建不清理旧产物时残留的重复副本不再引发
+  “Assembly with same name is already loaded”（此前每次启动都会写一条错误日志）；
+  用户插件仍优先于同名内置插件
+- PDFViewer / ThumbnailViewer 对 ImageViewer 的依赖已确认为「复用 XAML 里的
+  ImagePanel」，在 csproj 中显式注明；新增单元测试守护分层规则（禁止插件引用宿主
+  工程，插件之间的引用必须在允许清单内）
+
+### 可观测性（内存）
+
+- 新增隐藏开关 `/test-memory`：把 private / working set / 托管堆 / LOH / GC 次数 /
+  程序集数 / WebView2 进程数写入 `ql-smoke\memory.txt`（启动时、每次预览开关、
+  每 10 秒一次）
+- 实测（预览 pdf / mp4 / xlsx / png）：启动仅 23MB private，插件初始化后 213MB，
+  而托管堆全程只有 10–20MB —— 常驻占用几乎全在原生侧（WIC / LAV / pdfium /
+  Chromium），这也是「强制 GC 对常驻内存几乎无效」的原因；后续优化应针对原生
+  资源的释放而不是托管堆
+
+### 修复（本轮验证过程中暴露）
+
+- WebView2 原生加载器：`QuickLook.Shared` 输出到应用根目录，而
+  `flatten-native.ps1` 的落点是按插件目录计算的，导致根目录缺少
+  `WebView2Loader.dll`，Office / Markdown 预览报 `0x8007007E`；现在按架构显式拷到
+  根目录
+- OfficePanel / WebpagePanel 的 CoreWebView2 初始化：初始化失败或跨线程访问时不再
+  抛未处理异常，而是记录日志并安全跳过
+- `test.ps1`：清理旧实例用错了进程名（`QuickLookNext` → `QuickLook-Next`），托盘里
+  只要有残留实例，整轮测试就会假失败；含中文的 PowerShell 脚本补上 UTF-8 BOM，
+  在默认的 Windows PowerShell 5.1 下也能运行
+- CI 的 actions 版本更新：`checkout@v7` / `setup-dotnet@v6` / `upload-artifact@v7` /
+  `download-artifact@v8`，消除 Node 20 弃用告警
+
+构建 0 warning / 0 error；单元测试全部通过；真实场景冒烟测试（构建 / 托盘菜单与
+亚克力 / 15 种格式真实预览 / Explorer 选区链路）全部通过。
+
 ## QuickLook-Next 3.31.0
 
 > 这一版不引入新功能，集中处理 v3.30.0 复核出来的可靠性、安全与工程问题；
