@@ -245,6 +245,11 @@ public sealed class PluginManager
     private readonly Dictionary<string, (IViewer Plugin, int Index)> _matchCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MatchCacheMaxEntries = 128;
 
+    // v3.31.0: serializes matching. Lazy expansion can now run on the thread
+    // pool (see FindMatchAsync) while another preview asks for a match, and the
+    // expansion mutates LoadedPlugins.
+    private readonly object _matchLock = new();
+
     private PluginManager()
     {
         DefaultPlugin = new Plugin();
@@ -323,11 +328,124 @@ public sealed class PluginManager
         if (string.IsNullOrEmpty(path))
             return null;
 
+        var (matched, needsLazyExpansion) = MatchWithoutLazy(path);
+
+        if (needsLazyExpansion)
+            matched = ExpandLazyAndMatch(path);
+
+        return PrepareResult(matched);
+    }
+
+    /// <summary>
+    /// v3.31.0: same result as <see cref="FindMatch"/>, but when the file can
+    /// only be claimed by the rarely-used built-ins, their assemblies are loaded
+    /// on the thread pool instead of on the caller (UI) thread. The common case
+    /// - a match among the already loaded plugins - completes synchronously, so
+    /// previews behave exactly as before.
+    /// </summary>
+    internal async Task<IViewer> FindMatchAsync(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return null;
+
+        var (matched, needsLazyExpansion) = MatchWithoutLazy(path);
+
+        if (needsLazyExpansion)
+            matched = await Task.Run(() => ExpandLazyAndMatch(path)).ConfigureAwait(true);
+
+        return PrepareResult(matched);
+    }
+
+    /// <summary>
+    /// v3.22.0/v3.31.0: matches a path against the plugins that are already
+    /// loaded, plus the per-extension match cache. When a cached winner exists
+    /// for the extension, the scan starts from the cached position instead of
+    /// the top, so repeated same-format previews skip the CanHandle calls of
+    /// every plugin below the winner.
+    /// <para>
+    /// Returns <c>NeedsLazyExpansion = true</c> when no loaded plugin claims the
+    /// file and there are still not-yet-loaded built-ins left, so the caller can
+    /// decide where to pay that cost.
+    /// </para>
+    /// </summary>
+    private (IViewer Match, bool NeedsLazyExpansion) MatchWithoutLazy(string path)
+    {
         var instance = GetInstance();
         instance.EnsureLoaded();
 
-        var matched = instance.FindMatchCore(path);
+        lock (_matchLock)
+        {
+            // Snapshot: loading a lazy plugin inserts into LoadedPlugins and
+            // re-sorts, so the list must not be indexed live here.
+            var plugins = LoadedPlugins.ToArray();
 
+            var cached = TryGetCachedMatch(path, out var cachedIndex);
+
+            if (cachedIndex >= 0 && cachedIndex < plugins.Length)
+            {
+                // Re-verify from the top of the priority order up to and
+                // including the cached winner, exactly like a full scan would.
+                for (var i = 0; i <= cachedIndex; i++)
+                {
+                    var plugin = plugins[i];
+                    if (!CanHandle(plugin, path))
+                        continue;
+
+                    if (!ReferenceEquals(plugin, cached))
+                        RememberMatch(path, i);
+                    return (plugin, false);
+                }
+
+                // The cached plugin no longer claims this file; drop the stale
+                // entry and finish the scan where it left off.
+                ClearMatchCache();
+            }
+
+            for (var i = Math.Max(0, cachedIndex + 1); i < plugins.Length; i++)
+            {
+                var plugin = plugins[i];
+                if (CanHandle(plugin, path))
+                {
+                    RememberMatch(path, i);
+                    return (plugin, false);
+                }
+            }
+        }
+
+        return (null, HasPendingLazyPlugin());
+    }
+
+    private bool HasPendingLazyPlugin()
+    {
+        lock (_lazyLock)
+            return _pendingLazy.Count > 0;
+    }
+
+    /// <summary>
+    /// v3.4.0/v3.31.0: no eager plugin claimed the file - load the rarely-used
+    /// built-ins on demand and match against them. Runs under the match lock so
+    /// a concurrent preview never observes a half-updated plugin list.
+    /// </summary>
+    private IViewer ExpandLazyAndMatch(string path)
+    {
+        lock (_matchLock)
+        {
+            var lazy = MatchLazyPlugin(path);
+
+            if (lazy != null)
+            {
+                var index = LoadedPlugins.IndexOf(lazy);
+                if (index >= 0)
+                    RememberMatch(path, index);
+            }
+
+            return lazy;
+        }
+    }
+
+    private IViewer PrepareResult(IViewer matched)
+    {
+        var instance = GetInstance();
         var selected = matched ?? DefaultPlugin;
         instance.EnsurePluginReady(selected);
 
@@ -340,59 +458,6 @@ public sealed class PluginManager
         }
 
         return selected.GetType().CreateInstance<IViewer>();
-    }
-
-    /// <summary>
-    /// v3.22.0: matches a path against the loaded plugins. When a cached
-    /// winner exists for the extension, the scan starts from the cached
-    /// position instead of the top, so repeated same-format previews skip the
-    /// CanHandle calls of every plugin below the winner.
-    /// </summary>
-    private IViewer FindMatchCore(string path)
-    {
-        var cached = TryGetCachedMatch(path, out var cachedIndex);
-
-        if (cachedIndex >= 0)
-        {
-            // Re-verify from the top of the priority order up to and including
-            // the cached winner, exactly like a full scan would.
-            for (var i = 0; i <= cachedIndex; i++)
-            {
-                var plugin = LoadedPlugins[i];
-                if (!CanHandle(plugin, path))
-                    continue;
-
-                if (!ReferenceEquals(plugin, cached))
-                    RememberMatch(path, i);
-                return plugin;
-            }
-
-            // The cached plugin no longer claims this file; drop the stale
-            // entry and finish the scan where it left off.
-            ClearMatchCache();
-        }
-
-        for (var i = Math.Max(0, cachedIndex + 1); i < LoadedPlugins.Count; i++)
-        {
-            var plugin = LoadedPlugins[i];
-            if (CanHandle(plugin, path))
-            {
-                RememberMatch(path, i);
-                return plugin;
-            }
-        }
-
-        // v3.4.0: no eager plugin claimed the file - try the rarely-used
-        // built-ins, loading them on demand.
-        var lazy = MatchLazyPlugin(path);
-        if (lazy != null)
-        {
-            var index = LoadedPlugins.IndexOf(lazy);
-            if (index >= 0)
-                RememberMatch(path, index);
-        }
-
-        return lazy;
     }
 
     private static bool CanHandle(IViewer plugin, string path)

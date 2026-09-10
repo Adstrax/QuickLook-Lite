@@ -22,6 +22,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 
 namespace QuickLookNext;
 
@@ -207,7 +208,37 @@ public class ViewWindowManager : IDisposable
 
         RunFocusMonitor();
 
-        var matchedPlugin = PluginManager.GetInstance().FindMatch(path);
+        // v3.31.0: matching can mean loading plugin assemblies (the first
+        // preview of a format handled by a rarely-used built-in). FindMatchAsync
+        // moves that work to the thread pool; the common case still completes
+        // synchronously, so nothing about a normal preview changes.
+        _ = BeginShowAsync(path);
+    }
+
+    /// <summary>
+    /// v3.31.0: resolves the plugin for <paramref name="path"/> and shows the
+    /// preview. A request that was superseded while the plugin search ran is
+    /// dropped, and a failing search is reported like a failing plugin.
+    /// </summary>
+    private async Task BeginShowAsync(string path)
+    {
+        IViewer matchedPlugin;
+
+        try
+        {
+            matchedPlugin = await PluginManager.GetInstance().FindMatchAsync(path).ConfigureAwait(true);
+        }
+        catch (Exception e)
+        {
+            ProcessHelper.WriteLog(e.ToString());
+            CurrentPluginFailed(path, ExceptionDispatchInfo.Capture(e));
+            return;
+        }
+
+        // A newer preview request (or a close) superseded this one while the
+        // search was running on the thread pool.
+        if (_invokedPath != path)
+            return;
 
         BeginShowNewWindow(path, matchedPlugin);
     }
@@ -255,9 +286,7 @@ public class ViewWindowManager : IDisposable
         if (!window.IsVisible || string.IsNullOrEmpty(_invokedPath))
             return;
 
-        var matchedPlugin = PluginManager.GetInstance().FindMatch(_invokedPath);
-
-        BeginShowNewWindow(_invokedPath, matchedPlugin);
+        _ = BeginShowAsync(_invokedPath);
     }
 
     public void ToggleFullscreen()
