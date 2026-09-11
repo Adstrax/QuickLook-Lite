@@ -32,29 +32,11 @@ public class PuImagePanel : SvgImagePanel
 {
     private string _puContent;
 
-    public PuImagePanel()
-    {
-        if (OSThemeHelper.AppsUseDarkTheme())
-        {
-            // Invoke using reflection: WebView2.CreationProperties.AdditionalBrowserArguments
-            // This approach allows the library to avoid direct dependency on WebView2
-            if (typeof(WebpagePanel).GetField("_webView", BindingFlags.NonPublic | BindingFlags.Instance) is FieldInfo fieldInfo)
-            {
-                object webView2 = fieldInfo.GetValue(this);
-
-                if (webView2?.GetType().GetProperty("CreationProperties", BindingFlags.Public | BindingFlags.Instance) is PropertyInfo creationPropertiesProperty)
-                {
-                    object creationProperties = creationPropertiesProperty.GetValue(webView2);
-
-                    if (creationProperties?.GetType().GetProperty("AdditionalBrowserArguments", BindingFlags.Public | BindingFlags.Instance) is PropertyInfo additionalBrowserArgumentsProperty)
-                    {
-                        string additionalBrowserArguments = (additionalBrowserArgumentsProperty.GetValue(creationProperties) as string) ?? string.Empty;
-                        additionalBrowserArgumentsProperty.SetValue(creationProperties, additionalBrowserArguments + "--enable-features=WebContentsForceDark");
-                    }
-                }
-            }
-        }
-    }
+    // v3.39.0: replaced the reflection-into-CreationProperties trick - the controller
+    // is pooled now, so the switch has to be part of the acquire request (the pool
+    // keeps controls with different switches apart).
+    protected override string BrowserArguments =>
+        OSThemeHelper.AppsUseDarkTheme() ? "--enable-features=WebContentsForceDark" : null;
 
     public override void Preview(string path)
     {
@@ -91,11 +73,16 @@ public class PuImagePanel : SvgImagePanel
         NavigateToUri(new Uri("file://quicklook/"));
     }
 
-    protected override void WebView_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
+    protected override void OnControllerReady()
     {
-        base.WebView_CoreWebView2InitializationCompleted(sender, e);
-        if (e.IsSuccess)
-            _webView.NavigationCompleted += PuView_NavigationCompleted;
+        base.OnControllerReady();
+        _webView.NavigationCompleted += PuView_NavigationCompleted;
+    }
+
+    protected override void OnControllerReleasing()
+    {
+        base.OnControllerReleasing();
+        _webView.NavigationCompleted -= PuView_NavigationCompleted;
     }
 
     private void PuView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)

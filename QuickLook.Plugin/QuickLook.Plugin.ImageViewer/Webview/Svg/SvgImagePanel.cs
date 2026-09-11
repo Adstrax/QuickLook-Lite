@@ -59,19 +59,10 @@ public class SvgImagePanel : WebpagePanel, IWebImagePanel
         InitializeResources();
     }
 
-    protected override void InitializeComponent()
-    {
-        _webView = new WebView2()
-        {
-            CreationProperties = new CoreWebView2CreationProperties
-            {
-                UserDataFolder = QuickLook.Plugin.Shared.WebView2EnvironmentProvider.UserDataFolder,
-            },
-            DefaultBackgroundColor = Color.Transparent,
-        };
-        _webView.CoreWebView2InitializationCompleted += WebView_CoreWebView2InitializationCompleted;
-        Content = _webView;
-    }
+    // v3.39.0: the control now comes from WebView2ControlPool through the base class
+    // (creating it here meant a fresh Chromium controller for every SVG / draw.io /
+    // Graphviz / PlantUML / Excalidraw / TGS / Lottie preview), so this override is
+    // intentionally gone.
 
     protected static void InitializeResources()
     {

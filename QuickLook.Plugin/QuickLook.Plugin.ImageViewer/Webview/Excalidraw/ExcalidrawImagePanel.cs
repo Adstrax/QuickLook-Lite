@@ -35,11 +35,18 @@ public class ExcalidrawImagePanel : SvgImagePanel
         NavigateToUri(new Uri("file://quicklook/"));
     }
 
-    protected override void WebView_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
+    // v3.39.0: the controller is pooled and initializes only once, so the per-panel
+    // handler is attached on every acquisition and detached again on release.
+    protected override void OnControllerReady()
     {
-        base.WebView_CoreWebView2InitializationCompleted(sender, e);
-        if (e.IsSuccess)
-            _webView.NavigationCompleted += ExcalidrawView_NavigationCompleted;
+        base.OnControllerReady();
+        _webView.NavigationCompleted += ExcalidrawView_NavigationCompleted;
+    }
+
+    protected override void OnControllerReleasing()
+    {
+        base.OnControllerReleasing();
+        _webView.NavigationCompleted -= ExcalidrawView_NavigationCompleted;
     }
 
     private void ExcalidrawView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)

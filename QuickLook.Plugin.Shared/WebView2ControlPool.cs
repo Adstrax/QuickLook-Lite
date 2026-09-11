@@ -52,6 +52,13 @@ public static class WebView2ControlPool
     private static readonly object Sync = new();
     private static readonly List<(WebView2 Control, string Arguments)> Idle = [];
 
+    // v3.39.0: parked controls need a live HWND. A WebView2 whose parent window
+    // disappears ends up in a state where the next controller creation fails with
+    // 0x8007139F, so parked controls wait in this off-screen window instead of
+    // being left parentless.
+    private static Window _parkingWindow;
+    private static Grid _parkingGrid;
+
     public static int IdleCount
     {
         get
@@ -94,7 +101,10 @@ public static class WebView2ControlPool
                 Idle.RemoveAt(i);
 
                 if (IsWarm(candidate.Control))
+                {
+                    DetachFromParent(candidate.Control);
                     return candidate.Control;
+                }
 
                 DisposeSafely(candidate.Control);
             }
@@ -211,7 +221,7 @@ public static class WebView2ControlPool
     {
         try
         {
-            Detach(control);
+            DetachFromParent(control);
 
             var core = control.CoreWebView2;
             if (core != null)
@@ -224,6 +234,10 @@ public static class WebView2ControlPool
             if (control.Source != null)
                 control.Source = new Uri("about:blank");
 
+            // Keep the control inside a real (off-screen) window so its controller
+            // survives the time it spends in the pool.
+            ParkingGrid().Children.Add(control);
+
             return true;
         }
         catch (Exception e)
@@ -233,7 +247,30 @@ public static class WebView2ControlPool
         }
     }
 
-    private static void Detach(WebView2 control)
+    private static Grid ParkingGrid()
+    {
+        if (_parkingWindow is { IsLoaded: true } && _parkingGrid != null)
+            return _parkingGrid;
+
+        _parkingGrid = new Grid();
+        _parkingWindow = new Window
+        {
+            Content = _parkingGrid,
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            Width = 1,
+            Height = 1,
+            Left = -32000,
+            Top = -32000,
+        };
+
+        _parkingWindow.Show();
+
+        return _parkingGrid;
+    }
+
+    private static void DetachFromParent(WebView2 control)
     {
         switch (LogicalTreeHelper.GetParent(control))
         {
@@ -251,6 +288,10 @@ public static class WebView2ControlPool
 
             case Decorator decorator when ReferenceEquals(decorator.Child, control):
                 decorator.Child = null;
+                break;
+
+            case Panel panel when panel.Children.Contains(control):
+                panel.Children.Remove(control);
                 break;
         }
     }
@@ -271,6 +312,7 @@ public static class WebView2ControlPool
 
         try
         {
+            DetachFromParent(control);
             control.Dispose();
         }
         catch

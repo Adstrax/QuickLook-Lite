@@ -67,11 +67,16 @@ public class GvImagePanel : SvgImagePanel
         NavigateToUri(new Uri("file://quicklook/"));
     }
 
-    protected override void WebView_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
+    protected override void OnControllerReady()
     {
-        base.WebView_CoreWebView2InitializationCompleted(sender, e);
-        if (e.IsSuccess)
-            _webView.NavigationCompleted += GvView_NavigationCompleted;
+        base.OnControllerReady();
+        _webView.NavigationCompleted += GvView_NavigationCompleted;
+    }
+
+    protected override void OnControllerReleasing()
+    {
+        base.OnControllerReleasing();
+        _webView.NavigationCompleted -= GvView_NavigationCompleted;
     }
 
     private void GvView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)

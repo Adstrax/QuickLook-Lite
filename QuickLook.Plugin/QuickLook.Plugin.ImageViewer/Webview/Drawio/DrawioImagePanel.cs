@@ -67,11 +67,16 @@ public class DrawioImagePanel : SvgImagePanel
         NavigateToUri(new Uri("file://quicklook/"));
     }
 
-    protected override void WebView_CoreWebView2InitializationCompleted(object sender, CoreWebView2InitializationCompletedEventArgs e)
+    protected override void OnControllerReady()
     {
-        base.WebView_CoreWebView2InitializationCompleted(sender, e);
-        if (e.IsSuccess)
-            _webView.NavigationCompleted += DrawioView_NavigationCompleted;
+        base.OnControllerReady();
+        _webView.NavigationCompleted += DrawioView_NavigationCompleted;
+    }
+
+    protected override void OnControllerReleasing()
+    {
+        base.OnControllerReleasing();
+        _webView.NavigationCompleted -= DrawioView_NavigationCompleted;
     }
 
     private void DrawioView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)

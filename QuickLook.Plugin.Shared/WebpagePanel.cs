@@ -49,36 +49,135 @@ public class WebpagePanel : UserControl
         if (!Helper.IsWebView2Available())
             Content = CreateDownloadButton();
         else
-        {
             InitializeComponent();
-
-            // v3.29.0: track the control so the idle recycler can shut the
-            // Chromium process group down after the last web preview closes.
-            // Registered here (not in InitializeComponent) because derived
-            // panels like SvgImagePanel override InitializeComponent entirely.
-            WebView2Lifecycle.Register(_webView);
-        }
     }
 
     protected virtual void InitializeComponent()
     {
-        _webView = new WebView2
-        {
-            CreationProperties = new CoreWebView2CreationProperties
-            {
-                // v3.36.0: profile folder chosen by the provider so a broken profile
-                // can be abandoned after a failed initialization.
-                UserDataFolder = WebView2EnvironmentProvider.UserDataFolder,
-            },
-
-            // v1.2.1: transparent background so the window's Mica backdrop shows
-            // through the web content (both light and dark themes).
-            DefaultBackgroundColor = System.Drawing.Color.FromArgb(0, 0, 0, 0),
-        };
-        _webView.NavigationStarting += Webview_NavigationStarting;
-        _webView.NavigationCompleted += WebView_NavigationCompleted;
-        _webView.CoreWebView2InitializationCompleted += WebView_CoreWebView2InitializationCompleted;
+        _webView = AcquireWebView();
         Content = _webView;
+    }
+
+    /// <summary>
+    /// v3.39.0: takes a warm control from <see cref="WebView2ControlPool"/> (or a
+    /// fresh one) and wires this panel to it. Creating a Chromium controller costs
+    /// ~300-400 ms, which every web preview paid again and again. Derived panels
+    /// that build their own content tree must call this instead of "new WebView2()".
+    /// </summary>
+    protected WebView2 AcquireWebView()
+    {
+        var control = WebView2ControlPool.Acquire(BrowserArguments);
+
+        control.NavigationStarting += Webview_NavigationStarting;
+        control.NavigationCompleted += WebView_NavigationCompleted;
+        control.CoreWebView2InitializationCompleted += WebView_CoreWebView2InitializationCompleted;
+
+        // v3.29.0: track the control so the idle recycler can shut the Chromium
+        // process group down after the last web preview closes. A parked control is
+        // unregistered again, so the recycler can still fire while it waits in the
+        // pool.
+        WebView2Lifecycle.Register(control);
+
+        // A reused control is already initialized, so the initialization-completed
+        // event never fires for it - re-apply the per-controller state here.
+        ApplyControllerState(control);
+
+        return control;
+    }
+
+    /// <summary>
+    /// Extra Chromium switches this panel's controller needs (the force-dark switch
+    /// the PlantUML panel uses, for example). Evaluated before the controller is
+    /// created, so it must not depend on instance fields; controls are pooled per
+    /// switch set.
+    /// </summary>
+    protected virtual string BrowserArguments => null;
+
+    private void ApplyControllerState(WebView2 control)
+    {
+        try
+        {
+            var core = control?.CoreWebView2;
+            if (core == null)
+                return; // still initializing: the completed handler calls us again
+
+            // v1.2.1: make the web content follow the app's manual light/dark toggle
+            // (prefers-color-scheme inside the page matches this).
+            core.Profile.PreferredColorScheme =
+                AppThemeState.IsDark ? CoreWebView2PreferredColorScheme.Dark : CoreWebView2PreferredColorScheme.Light;
+
+            // Re-attach per panel so resource interception (fallback directories,
+            // embedded pages) always belongs to the panel that is on screen.
+            core.WebResourceRequested -= WebView_WebResourceRequested;
+            core.WebResourceRequested += WebView_WebResourceRequested;
+            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+
+            OnControllerReady();
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[WebpagePanel] applying controller state failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called whenever this panel gets a usable CoreWebView2 - on a fresh controller
+    /// and on a reused one. Derived panels that register controller or control level
+    /// handlers override this instead of the one-shot
+    /// <c>WebView_CoreWebView2InitializationCompleted</c>.
+    /// </summary>
+    protected virtual void OnControllerReady()
+    {
+    }
+
+    /// <summary>
+    /// Counterpart of <see cref="OnControllerReady"/>: detach everything added
+    /// there. The control outlives this panel in the pool, so a handler left behind
+    /// would keep the old panel alive and run against the next document.
+    /// </summary>
+    protected virtual void OnControllerReleasing()
+    {
+    }
+
+    private void ReleaseWebView()
+    {
+        var control = _webView;
+
+        if (control == null)
+            return;
+
+        // Derived panels clean up first - _webView is still valid for them.
+        try
+        {
+            OnControllerReleasing();
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"[WebpagePanel] releasing controller state failed: {e.Message}");
+        }
+
+        _webView = null;
+
+        control.NavigationStarting -= Webview_NavigationStarting;
+        control.NavigationCompleted -= WebView_NavigationCompleted;
+        control.CoreWebView2InitializationCompleted -= WebView_CoreWebView2InitializationCompleted;
+
+        try
+        {
+            if (control.CoreWebView2 != null)
+                control.CoreWebView2.WebResourceRequested -= WebView_WebResourceRequested;
+        }
+        catch
+        {
+            // best effort - the controller may already be gone
+        }
+
+        WebView2Lifecycle.Unregister(control);
+
+        if (ReferenceEquals(Content, control))
+            Content = null;
+
+        WebView2ControlPool.Release(control);
     }
 
     public void NavigateToFile(string path)
@@ -282,14 +381,11 @@ public class WebpagePanel : UserControl
 
         if (e.IsSuccess)
         {
-            // v1.2.1: make the web content follow the app's manual light/dark
-            // toggle (prefers-color-scheme inside the page matches this).
-            _webView.CoreWebView2.Profile.PreferredColorScheme =
-                AppThemeState.IsDark ? CoreWebView2PreferredColorScheme.Dark : CoreWebView2PreferredColorScheme.Light;
-
             // v1.2.2: keep the page background transparent so the window's Mica
             // backdrop shows through. Runs once the DOM exists and uses
             // !important to beat the page's own background rules.
+            // Injected once per controller and inherited by every later document,
+            // which is why it stays here rather than in ApplyControllerState.
             _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 "document.addEventListener('DOMContentLoaded',function(){" +
                 "var s=document.createElement('style');" +
@@ -300,8 +396,9 @@ public class WebpagePanel : UserControl
                 "::-webkit-scrollbar-corner{background:transparent}';" +
                 "document.head.appendChild(s);});");
 
-            _webView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-            _webView.CoreWebView2.WebResourceRequested += WebView_WebResourceRequested;
+            // Theme, resource hook and the derived panel's own controller state - the
+            // same call the reuse path makes (see AcquireWebView).
+            ApplyControllerState(_webView);
         }
         else
         {
@@ -372,20 +469,9 @@ public class WebpagePanel : UserControl
     {
         _disposed = true;
 
-        if (_webView != null)
-        {
-            // v3.29.0: stop tracking first so the idle recycler counts this
-            // control as gone even if Dispose below throws.
-            WebView2Lifecycle.Unregister(_webView);
-            try
-            {
-                _webView.Dispose();
-            }
-            finally
-            {
-                _webView = null;
-            }
-        }
+        // v3.39.0: the control goes back to the pool instead of being disposed - that
+        // is what saves the controller creation on the next web preview.
+        ReleaseWebView();
     }
 
     private object CreateDownloadButton()
