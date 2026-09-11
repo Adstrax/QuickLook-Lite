@@ -126,8 +126,11 @@ public sealed partial class Plugin : IViewer, IMoreMenu
         _panel = new DbViewerPanel();
         context.ViewerContent = _panel;
         context.Title = Path.GetFileName(path);
-        _panel.LoadDatabase(path);
+        // v3.38.0: show the window first, load the database behind it. Opening the
+        // file and enumerating its objects used to run before IsBusy went false, so
+        // the spinner stayed for the whole load (measured 500-3300 ms).
         context.IsBusy = false;
+        _panel.LoadDatabaseAsync(path, dbType);
     }
 
     public void Cleanup()

@@ -9,6 +9,7 @@ using System.Data;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -55,6 +56,59 @@ public partial class DbViewerPanel : UserControl
             DatabaseType.LiteDb => LoadLiteDbNames(path),
             _ => [],
         };
+
+        tableComboBox.ItemsSource = objects;
+
+        if (objects.Any())
+        {
+            tableComboBox.SelectedIndex = 0;
+            _hasLoadedData = true;
+        }
+        else
+        {
+            MessageBox.Show(TranslationHelper.Get("MSG_NoTables", domain: Domain));
+        }
+    }
+
+    /// <summary>
+    /// v3.38.0: same as <see cref="LoadDatabase"/>, but opening the database and
+    /// enumerating its objects (the slow part - a native provider has to load and
+    /// the file has to be read) runs off the UI thread, so the preview window can be
+    /// shown right away instead of waiting for the whole load behind the spinner.
+    /// Only the UI update runs back on the dispatcher.
+    /// </summary>
+    internal void LoadDatabaseAsync(string path, DatabaseType databaseType, string password = null)
+    {
+        _path = path;
+        _sqlitePassword = password;
+        _databaseType = databaseType;
+        _hasLoadedData = false;
+
+        if (databaseType == DatabaseType.Unknown)
+        {
+            MessageBox.Show("无法识别的数据库格式");
+            return;
+        }
+
+        var panel = this;
+
+        _ = Task.Run(() =>
+        {
+            var objects = databaseType switch
+            {
+                DatabaseType.SQLite => panel.LoadSqliteNames(path),
+                DatabaseType.LiteDb => LoadLiteDbNames(path),
+                _ => Array.Empty<string>(),
+            };
+
+            panel.Dispatcher.InvokeAsync(() => panel.ApplyLoadedObjects(objects, path));
+        });
+    }
+
+    private void ApplyLoadedObjects(string[] objects, string path)
+    {
+        if (_path != path)
+            return; // a newer preview took over while we were loading
 
         tableComboBox.ItemsSource = objects;
 
