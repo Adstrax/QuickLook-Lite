@@ -107,6 +107,9 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 # ---------- 3. 准备测试文件 ----------
 Write-Host "== 3/8 准备测试文件 ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $smoke | Out-Null
+# v3.42.0: the preview warm-up proves itself by writing this file, so a leftover
+# from an earlier run must not be able to satisfy the assertion below.
+Remove-Item -LiteralPath (Join-Path $smoke 'warmup.txt') -Force -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.Drawing
 $bmp = New-Object System.Drawing.Bitmap 256, 256
 $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -374,6 +377,15 @@ Assert (-not (Test-Path -LiteralPath $updWork)) '更新临时目录已清理（�
 # 脚本最后会尝试启动副本，收尾掉，避免影响后面的步骤。
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -like "$updRoot*" } | Stop-Process -Force
+
+# v3.42.0: 预览预热 —— 应用启动后应在后台准备好常用的预览家族（首次预览慢的那部分
+# 工作），并把结果写进 warmup.txt。
+$warmUpDiag = Join-Path $smoke 'warmup.txt'
+Assert (Test-Path -LiteralPath $warmUpDiag) '预览预热已执行（warmup.txt）'
+if (Test-Path -LiteralPath $warmUpDiag) {
+    $warmed = Get-Content -LiteralPath $warmUpDiag -Raw
+    Assert ($warmed -match 'QuickLook\.Plugin\.') "预览预热覆盖了预览家族: $($warmed.Trim())"
+}
 
 # v3.41.0: 更新提示框 —— 用假 release 打开真实对话框，它在冒烟模式下 2 秒后自动
 # 关闭并写下诊断（材质 + 尺寸 + 按钮文案），据此断言材质与按钮。

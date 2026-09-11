@@ -19,6 +19,7 @@ using QuickLook.Common.Helpers;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -69,6 +70,25 @@ internal static class PluginUsageTracker
 
             _saveScheduled = true;
             _ = Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => SaveIfDirty());
+        }
+    }
+
+    /// <summary>
+    /// v3.42.0: the plugins this user opens most often, most used first. The
+    /// preview warm-up uses it to decide which families are worth preparing in the
+    /// background, so a user who reads mostly Markdown pays for nobody else's video
+    /// decoder.
+    /// </summary>
+    internal static IReadOnlyList<string> GetMostUsed(int count)
+    {
+        lock (Sync)
+        {
+            return Counts
+                .OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Take(count)
+                .Select(pair => pair.Key)
+                .ToList();
         }
     }
 

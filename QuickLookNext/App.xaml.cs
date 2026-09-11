@@ -486,6 +486,12 @@ public partial class App : Application
 
         CheckAndRegisterPluginIcon();
         RecordStartupPhase("onstartup-end");
+
+        // v3.42.0: the first preview of each family is the expensive one (panel
+        // XAML/JIT, native libraries, WebView2 environment). Prepare the families
+        // this user actually opens, in the background, while they are still busy
+        // elsewhere - see PreviewWarmUp for the measurements behind it.
+        Helpers.PreviewWarmUp.Start();
     }
 
     internal static void RecordStartupPhase(string phase)
