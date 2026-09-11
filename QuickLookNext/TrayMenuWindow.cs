@@ -289,7 +289,10 @@ internal sealed class TrayMenuWindow : Window
 
         var text = new TextBlock
         {
-            Text = entry.Header,
+            // v3.39.0: the translations carry WinForms style access-key markers
+            // ("重启 (&R)"), which this hand drawn WPF menu renders literally -
+            // they showed up as a stray "&" in front of the shortcut letter.
+            Text = entry.Header?.Replace("&", string.Empty),
             Foreground = entry.IsEnabled ? _textBrush : _disabledTextBrush,
             FontWeight = entry.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
             TextTrimming = TextTrimming.CharacterEllipsis,
