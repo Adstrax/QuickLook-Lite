@@ -65,7 +65,7 @@ public class SvgImagePanel : WebpagePanel, IWebImagePanel
         {
             CreationProperties = new CoreWebView2CreationProperties
             {
-                UserDataFolder = Path.Combine(SettingHelper.LocalDataPath, @"WebView2_Data\"),
+                UserDataFolder = QuickLook.Plugin.Shared.WebView2EnvironmentProvider.UserDataFolder,
             },
             DefaultBackgroundColor = Color.Transparent,
         };

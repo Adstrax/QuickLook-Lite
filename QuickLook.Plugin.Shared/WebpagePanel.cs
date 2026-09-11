@@ -66,7 +66,9 @@ public class WebpagePanel : UserControl
         {
             CreationProperties = new CoreWebView2CreationProperties
             {
-                UserDataFolder = Path.Combine(SettingHelper.LocalDataPath, @"WebView2_Data\"),
+                // v3.36.0: profile folder chosen by the provider so a broken profile
+                // can be abandoned after a failed initialization.
+                UserDataFolder = WebView2EnvironmentProvider.UserDataFolder,
             },
 
             // v1.2.1: transparent background so the window's Mica backdrop shows

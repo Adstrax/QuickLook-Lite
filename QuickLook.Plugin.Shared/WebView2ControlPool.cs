@@ -158,7 +158,9 @@ public static class WebView2ControlPool
     {
         var creation = new CoreWebView2CreationProperties
         {
-            UserDataFolder = Path.Combine(SettingHelper.LocalDataPath, @"WebView2_Data\"),
+            // v3.36.0: the profile folder is chosen by WebView2EnvironmentProvider so
+            // a broken profile can be abandoned after a failed initialization.
+            UserDataFolder = WebView2EnvironmentProvider.UserDataFolder,
         };
 
         if (!string.IsNullOrEmpty(browserArguments))

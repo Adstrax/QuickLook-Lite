@@ -2,6 +2,18 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.36.0
+
+### 修复（WebView2 初始化失败）
+
+- 控制器创建失败时改为 **3 次重试**（300/800ms 退避），每次重试前回收本应用的
+  Chromium 进程组；连续失败则把 WebView2 profile 轮换到新目录（`WebView2_Data_1`
+  …），彻底失败时显示明确提示而不是空白预览
+- 字体预览在页面加载失败时立即返回，不再白等 1.5 秒的字体超时
+- 实测：profile 处于“脏”状态（反复强制结束进程所致）时，字体预览从 **1603ms
+  降到 648ms**，随后 html 143ms / 字体 419ms / Markdown 201ms；干净 profile 下
+  字体约 400–530ms
+
 ## QuickLook-Next 3.35.0
 
 > 更新体验与数据位置：修复「更新迟迟不触发」，新增「立即更新 / 忽略更新」选择，

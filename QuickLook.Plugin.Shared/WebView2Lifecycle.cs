@@ -83,6 +83,17 @@ public static class WebView2Lifecycle
         {
             // best effort
         }
+
+        // v3.36.0: and move to a fresh profile folder, so the next control does not
+        // inherit the state that made Chromium refuse to start.
+        try
+        {
+            WebView2EnvironmentProvider.RotateAfterFailure();
+        }
+        catch
+        {
+            // best effort
+        }
     }
 
     public static void Register(WebView2 webView)
