@@ -37,6 +37,9 @@ public class WebfontPanel : WebpagePanel
     protected byte[] _homePage;
     protected ObservableFileStream _fontStream = null;
     private string _pendingIconFontPath;
+    // v3.36.0: set when the page could not load (e.g. the WebView2 controller
+    // failed to initialize), so the preview does not stall on the font timeout.
+    private volatile bool _navigationFailed;
 
     static WebfontPanel()
     {
@@ -104,6 +107,13 @@ public class WebfontPanel : WebpagePanel
     protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         base.WebView_NavigationCompleted(sender, e);
+
+        // v3.36.0: a failed navigation - a WebView2 controller that could not be
+        // created (0x8007139F from a dirty profile, for example) - never delivers
+        // the font request, so WaitForFontSent() would spin for its whole 1.5 s
+        // timeout and leave the preview blank. Stop waiting right away instead.
+        if (!e.IsSuccess)
+            _navigationFailed = true;
 
         if (!e.IsSuccess || string.IsNullOrEmpty(_pendingIconFontPath) || _webView?.CoreWebView2 == null)
             return;
@@ -282,6 +292,10 @@ public class WebfontPanel : WebpagePanel
 
     public bool WaitForFontSent()
     {
+        // v3.36.0: the page never loaded, so the font will never arrive.
+        if (_navigationFailed)
+            return false;
+
         bool timeout = SpinWait.SpinUntil(
             () => _fontStream is not null && _fontStream.IsEndOfStream,
             TimeSpan.FromSeconds(1.5d) // The prediction is MAX 100MB
