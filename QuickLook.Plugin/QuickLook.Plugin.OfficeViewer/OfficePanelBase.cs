@@ -79,7 +79,9 @@ public abstract class OfficePanelBase : UserControl, IDisposable
 
     private async Task NavigateWhenReadyAsync(string html)
     {
-        for (var attempt = 1; attempt <= 2; attempt++)
+        const int attempts = 3;
+
+        for (var attempt = 1; attempt <= attempts; attempt++)
         {
             try
             {
@@ -88,12 +90,17 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             catch (Exception e)
             {
                 ProcessHelper.WriteLog(
-                    $"[OfficePanel] CoreWebView2 init failed (attempt {attempt}): {e.GetBaseException().Message}");
+                    $"[OfficePanel] CoreWebView2 init failed (attempt {attempt}/{attempts}): {e.GetBaseException().Message}");
 
-                if (attempt == 2)
+                if (attempt == attempts)
+                {
+                    ShowInitializationFailure();
                     return;
+                }
 
-                await Task.Delay(300);
+                // v3.36.0: restart our Chromium process group before retrying.
+                WebView2Lifecycle.RecoverFromFailedInitialization();
+                await Task.Delay(attempt == 1 ? 300 : 800);
                 continue;
             }
 
@@ -110,6 +117,35 @@ public abstract class OfficePanelBase : UserControl, IDisposable
             });
 
             return;
+        }
+    }
+
+    /// <summary>
+    /// v3.36.0: a readable message instead of an empty sheet when WebView2 could not
+    /// be initialized at all.
+    /// </summary>
+    private void ShowInitializationFailure()
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            Content = new TextBlock
+            {
+                Text = TranslationHelper.Get("WEBVIEW2_INIT_FAILED",
+                    failsafe: "WebView2 组件初始化失败。\n请重启应用；若仍然如此，删除程序目录 UserData\\WebView2_Data 后重试。",
+                    domain: System.Reflection.Assembly.GetExecutingAssembly().GetName().Name),
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(24),
+            };
+        }
+        catch
+        {
+            // Never let the fallback throw.
         }
     }
 

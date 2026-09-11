@@ -53,6 +53,38 @@ public static class WebView2Lifecycle
         }
     }
 
+    /// <summary>
+    /// v3.36.0: recovery for a controller that refuses to initialize.
+    /// <para>
+    /// A session that was killed while Chromium was running can leave state behind
+    /// that makes <c>CoreWebView2Environment.CreateCoreWebView2ControllerAsync</c>
+    /// fail with 0x8007139F ("the group or resource is not in the correct state"),
+    /// which showed up as a blank font/markdown preview that stalled for the whole
+    /// 1.5 s font timeout. Reaping our own WebView2 process group (and dropping
+    /// pooled controls first) makes the next attempt start from a clean browser.
+    /// </para>
+    /// </summary>
+    public static void RecoverFromFailedInitialization()
+    {
+        try
+        {
+            WebView2ControlPool.ClearIdle();
+        }
+        catch
+        {
+            // best effort
+        }
+
+        try
+        {
+            ReapBrowserProcesses();
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
     public static void Register(WebView2 webView)
     {
         if (webView is null)
