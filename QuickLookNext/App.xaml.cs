@@ -256,6 +256,26 @@ public partial class App : Application
         // Hidden test hook (/test-auto-update): feeds a fake release JSON
         // (ql-smoke\fake-release.json) into the auto-update pipeline so the
         // download / replace / restart flow can be verified end to end.
+        // v3.35.0: /test-update-prompt feeds the same fake release into the
+        // "update now / ignore" prompt, so the dialog can be exercised (and its
+        // answer checked in QuickLookNext.config) without touching GitHub.
+        if (e.Args.Contains("/test-update-prompt"))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var fakePath = Path.Combine(SmokeDir, "fake-release.json");
+                    var release = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(fakePath));
+                    Updater.PromptForTest(release);
+                }
+                catch (Exception ex)
+                {
+                    ProcessHelper.WriteLog($"/test-update-prompt failed: {ex}");
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         if (e.Args.Contains("/test-auto-update"))
         {
             Dispatcher.BeginInvoke(new Action(() =>
@@ -560,7 +580,10 @@ public partial class App : Application
         if (SettingHelper.Get("DisableAutoUpdateCheck", false))
             return;
 
-        if (DateTime.Now.Ticks - SettingHelper.Get<long>("LastUpdateTicks") < TimeSpan.FromDays(30).Ticks)
+        // v3.35.0: check once a day instead of once a month. The 30 day window is
+        // why a freshly updated install (which stamps the check on every successful
+        // start) never noticed the next release for weeks.
+        if (DateTime.Now.Ticks - SettingHelper.Get<long>("LastUpdateTicks") < TimeSpan.FromDays(1).Ticks)
             return;
 
         // v3.31.0: the "last checked" stamp is written by Updater itself, once

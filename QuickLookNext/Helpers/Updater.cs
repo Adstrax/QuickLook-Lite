@@ -35,6 +35,10 @@ internal class Updater
     // v3.31.0: refuse obviously oversized packages before writing them to disk.
     private const long MaxPackageBytes = 400L * 1024 * 1024;
 
+    // v3.35.0: the version the user chose to skip ("忽略更新"). Background checks
+    // stay quiet for it; a manual check clears it so the user can change their mind.
+    private const string IgnoredVersionSetting = "IgnoredUpdateVersion";
+
     // v3.31.0: the release package is only ever downloaded from GitHub. Without
     // this check a malformed API response (or a proxy rewriting it) could point
     // the updater at any host.
@@ -124,53 +128,33 @@ internal class Updater
                     return;
                 }
 
+                // v3.35.0: "ignore this version" support. A manual check clears the
+                // skip again so the user can change their mind.
+                var ignoredVersion = SettingHelper.Get(IgnoredVersionSetting, string.Empty, "QuickLookNext");
+                var versionIgnored = string.Equals(ignoredVersion, nVersion, StringComparison.OrdinalIgnoreCase);
+
+                if (!silent && versionIgnored)
+                    SettingHelper.Set(IgnoredVersionSetting, string.Empty, "QuickLookNext");
+
                 if (!silent)
                 {
-                    // v3.0.4: user-initiated check -> download and install the
-                    // release package automatically instead of opening GitHub.
-                    Application.Current.Dispatcher.Invoke(() =>
-                        TrayIconManager.ShowNotification(string.Empty,
-                            string.Format(
-                                TranslationHelper.Get("Update_AutoDownloading",
-                                    failsafe: "发现新版本 {0}，正在自动下载并更新..."),
-                                nVersion),
-                            timeout: 20000));
-
-                    if (TryAutoUpdate(json))
-                    {
-                        Application.Current.Dispatcher.Invoke(() => Application.Current.Shutdown());
-                        return;
-                    }
-
-                    // Auto-update unavailable (read-only folder / no package):
-                    // fall back to opening the download page.
-                    Application.Current.Dispatcher.Invoke(() =>
-                        TrayIconManager.ShowNotification(string.Empty,
-                            TranslationHelper.Get("Update_AutoUpdateFailed",
-                                failsafe: "自动更新失败，点击打开下载页面"),
-                            timeout: 20000,
-                            clickEvent: OpenReleasesPage));
+                    // v3.35.0: a user-initiated check asks right away instead of
+                    // downloading immediately.
+                    Application.Current.Dispatcher.Invoke(() => AskAndUpdate(json, nVersion));
                     return;
                 }
 
-                // Background check: only notify; clicking the notification
-                // starts the automatic update.
+                if (versionIgnored)
+                    return;
+
+                // Background check: only notify; clicking the notification opens the
+                // same "update now / ignore" prompt.
                 Application.Current.Dispatcher.Invoke(() =>
                 {
                     TrayIconManager.ShowNotification(string.Empty,
                         string.Format(TranslationHelper.Get("Update_Found"), nVersion),
                         timeout: 20000,
-                        clickEvent: () => _ = Task.Run(() =>
-                        {
-                            if (TryAutoUpdate(json))
-                            {
-                                Application.Current.Dispatcher.Invoke(() => Application.Current.Shutdown());
-                            }
-                            else
-                            {
-                                OpenReleasesPage();
-                            }
-                        }));
+                        clickEvent: () => AskAndUpdate(json, nVersion));
                 });
             }
             catch (Exception e)
@@ -187,6 +171,55 @@ internal class Updater
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// v3.35.0: asks the user what to do about <paramref name="version"/> and acts
+    /// on the answer. Runs on the UI thread - the prompt is a modal window.
+    /// </summary>
+    private static void AskAndUpdate(dynamic release, string version)
+    {
+        if (UpdateDialog.Ask(version))
+        {
+            _ = Task.Run(() => RunUpdate(release, version));
+            return;
+        }
+
+        SettingHelper.Set(IgnoredVersionSetting, version, "QuickLookNext");
+
+        TrayIconManager.ShowNotification(string.Empty,
+            string.Format(TranslationHelper.Get("Update_Ignored",
+                failsafe: "已忽略 {0}；下次手动检查更新时会再次提示。"), version));
+    }
+
+    /// <summary>
+    /// v3.35.0: downloads and installs the release, then exits so the update script
+    /// can replace the files. Runs on a background thread.
+    /// </summary>
+    private static void RunUpdate(dynamic release, string version)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+            TrayIconManager.ShowNotification(string.Empty,
+                string.Format(
+                    TranslationHelper.Get("Update_AutoDownloading",
+                        failsafe: "发现新版本 {0}，正在自动下载并更新..."),
+                    version),
+                timeout: 20000));
+
+        if (TryAutoUpdate(release))
+        {
+            Application.Current.Dispatcher.Invoke(() => Application.Current.Shutdown());
+            return;
+        }
+
+        // Auto-update unavailable (read-only folder / no usable package): fall back
+        // to opening the download page.
+        Application.Current.Dispatcher.Invoke(() =>
+            TrayIconManager.ShowNotification(string.Empty,
+                TranslationHelper.Get("Update_AutoUpdateFailed",
+                    failsafe: "自动更新失败，点击打开下载页面"),
+                timeout: 20000,
+                clickEvent: OpenReleasesPage));
     }
 
     /// <summary>
@@ -446,6 +479,16 @@ internal class Updater
     /// object into the same download/install path used by CheckForUpdates.
     /// </summary>
     internal static bool RunAutoUpdate(dynamic release) => TryAutoUpdate(release);
+
+    /// <summary>
+    /// v3.35.0 test hook: shows the update prompt for a (possibly fake) release and
+    /// acts on the answer, exactly like a manual update check does.
+    /// </summary>
+    internal static void PromptForTest(dynamic release)
+    {
+        var version = (string)release["tag_name"] ?? "0.0.0";
+        AskAndUpdate(release, version);
+    }
 
     private static dynamic DownloadJson(string url)
     {

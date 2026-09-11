@@ -7,7 +7,13 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $exe = Join-Path $root 'Build\Release\QuickLook-Next.exe'
-$log = Join-Path $env:APPDATA 'pooi.moe\QuickLookNext\QuickLookNext.Exception.log'
+# v3.35.0: the app keeps its data (settings, log, user plugins) next to the
+# program; %APPDATA% is only used when the program folder is read-only.
+# Resolved on every call because the folder is wiped in step 2.
+$logLocations = @(
+    (Join-Path $root 'Build\Release\UserData\QuickLookNext.Exception.log'),
+    (Join-Path $env:APPDATA 'pooi.moe\QuickLookNext\QuickLookNext.Exception.log')
+)
 # v1.2.36: keep the smoke-test files inside the repository
 # (E:\Codex\QK-Lite\<version>\ql-smoke) instead of the C: temp folder; the
 # app's diagnostics (timing/startup/tray-menu) follow via QL_SMOKE_DIR.
@@ -21,7 +27,10 @@ function Assert([bool]$cond, [string]$msg) {
 }
 
 function Get-LogLength {
-    if (Test-Path $log) { (Get-Item $log).Length } else { 0 }
+    foreach ($candidate in $logLocations) {
+        if (Test-Path $candidate) { return (Get-Item $candidate).Length }
+    }
+    0
 }
 
 function Get-QuickLookNextWindows([int]$targetPid) {

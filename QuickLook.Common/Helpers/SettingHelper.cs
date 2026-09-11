@@ -25,14 +25,19 @@ namespace QuickLook.Common.Helpers;
 
 public static class SettingHelper
 {
-    public static readonly string LocalDataPath =
-        IsPortableVersion()
-            // v3.2.0 fix: the portable marker and UserData live next to the
-            // exe (AppContext.BaseDirectory). QuickLook.Common.dll may sit in
-            // lib\, so the assembly location is no longer the app root.
-            ? Path.Combine(AppContext.BaseDirectory, @"UserData\")
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                @"pooi.moe\QuickLookNext\");
+    /// <summary>
+    /// Where settings, plugins, caches and logs live.
+    /// <para>
+    /// v3.35.0: data now stays with the program (<c>&lt;app&gt;\UserData\</c>)
+    /// whenever that folder can be written, instead of being scattered into
+    /// <c>%APPDATA%\pooi.moe\QuickLookNext\</c>. That keeps a copy of the folder
+    /// self-contained and makes the settings survive the auto-update (the updater
+    /// preserves UserData and replaces everything else). Installations in a
+    /// read-only location such as Program Files still fall back to %APPDATA%, and
+    /// an existing %APPDATA% profile is copied over once so nothing is lost.
+    /// </para>
+    /// </summary>
+    public static readonly string LocalDataPath = ResolveDataPath();
 
     // v3.31.0: how often an already-cached settings file is re-validated with a
     // stat() call. Within the window every Get() is a plain dictionary lookup.
@@ -115,6 +120,95 @@ public static class SettingHelper
         var lck = Path.Combine(AppContext.BaseDirectory, "portable.lock");
 
         return File.Exists(lck);
+    }
+
+    private static string ResolveDataPath()
+    {
+        // QuickLook.Common.dll may sit in lib\, so the app root is the process
+        // directory rather than the assembly location.
+        var local = Path.Combine(AppContext.BaseDirectory, "UserData");
+        var roaming = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            @"pooi.moe\QuickLookNext");
+
+        // The portable marker always wins.
+        if (IsPortableVersion())
+            return WithTrailingSeparator(local);
+
+        // Program Files (and other read-only locations) keep using %APPDATA%.
+        if (!IsWritable(local))
+            return WithTrailingSeparator(roaming);
+
+        TryMigrateProfile(roaming, local);
+
+        return WithTrailingSeparator(local);
+    }
+
+    private static string WithTrailingSeparator(string path)
+    {
+        return path.TrimEnd('\\', '/') + @"\";
+    }
+
+    private static bool IsWritable(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+
+            var probe = Path.Combine(folder, ".write-probe");
+            File.WriteAllText(probe, string.Empty);
+            File.Delete(probe);
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Copies an existing %APPDATA% profile next to the program once, so moving
+    /// the data does not look like a settings reset. Only small state files are
+    /// copied - caches such as WebView2_Data are rebuilt on demand.
+    /// </summary>
+    private static void TryMigrateProfile(string roaming, string local)
+    {
+        try
+        {
+            if (!Directory.Exists(roaming))
+                return;
+
+            // A local profile already exists: never overwrite it.
+            if (Directory.GetFiles(local, "*.config").Length > 0)
+                return;
+
+            foreach (var file in Directory.GetFiles(roaming, "*.config"))
+                File.Copy(file, Path.Combine(local, Path.GetFileName(file)), overwrite: false);
+
+            var usage = Path.Combine(roaming, "plugin-usage.json");
+            if (File.Exists(usage))
+                File.Copy(usage, Path.Combine(local, "plugin-usage.json"), overwrite: false);
+
+            var userPlugins = Path.Combine(roaming, "QuickLook.Plugin");
+            if (Directory.Exists(userPlugins))
+                CopyDirectory(userPlugins, Path.Combine(local, "QuickLook.Plugin"));
+        }
+        catch
+        {
+            // Best effort: a failure only means default settings.
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: false);
+
+        foreach (var directory in Directory.GetDirectories(source))
+            CopyDirectory(directory, Path.Combine(destination, Path.GetFileName(directory)));
     }
 
     /// <summary>
