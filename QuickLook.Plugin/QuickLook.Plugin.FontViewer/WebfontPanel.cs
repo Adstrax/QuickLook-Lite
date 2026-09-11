@@ -85,10 +85,14 @@ public class WebfontPanel : WebpagePanel
         byte[] bytes = Encoding.UTF8.GetBytes(html);
         _homePage = bytes;
 
-        if (_webView?.CoreWebView2 != null)
+        // v3.36.2: reload only while the preview page is really still loaded, and use
+        // a fresh URL - Chromium's (cross session) disk cache can otherwise answer
+        // the page or the font itself, so our resource hook never runs, _fontStream
+        // stays null and WaitForFontSent() waits for nothing.
+        if (IsShowingHomePage())
             _webView.CoreWebView2.Reload();
         else
-            NavigateToUri(new Uri("file://quicklook/"));
+            NavigateToUri(new Uri($"file://quicklook/?{Guid.NewGuid():N}"));
     }
 
     public void PreviewIconFont(string path)
@@ -98,10 +102,18 @@ public class WebfontPanel : WebpagePanel
         _pendingIconFontPath = path;
         _homePage = _resources["/iconfont2html.html"];
 
-        if (_webView?.CoreWebView2 != null)
+        if (IsShowingHomePage())
             _webView.CoreWebView2.Reload();
         else
-            NavigateToUri(new Uri("file://quicklook/"));
+            NavigateToUri(new Uri($"file://quicklook/?{Guid.NewGuid():N}"));
+    }
+
+    private bool IsShowingHomePage()
+    {
+        return _webView?.CoreWebView2 != null &&
+               _currentUri != null &&
+               string.Equals(_currentUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(_currentUri.Host, "quicklook", StringComparison.OrdinalIgnoreCase);
     }
 
     protected override void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
@@ -138,7 +150,7 @@ public class WebfontPanel : WebpagePanel
         var fileName = Path.GetFileName(path);
         var fileExt = Path.GetExtension(fileName);
 
-        string cssUrl = $"src: url('{fileName}')"
+        string cssUrl = $"src: url('{fileName}?{Guid.NewGuid():N}')"
             + fileExt switch
             {
                 ".eot" => " format('embedded-opentype');",
