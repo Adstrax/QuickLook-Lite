@@ -71,8 +71,15 @@ public static class WebView2Lifecycle
     /// 1.5 s font timeout. Reaping our own WebView2 process group (and dropping
     /// pooled controls first) makes the next attempt start from a clean browser.
     /// </para>
+    /// <para>
+    /// v3.40.0: the recovery is staged so that it never costs a profile directory
+    /// unless there is no other way - the first retry repairs the lock markers of the
+    /// profile in use, the second rebuilds it in place, and only a failure after
+    /// that moves to another folder.
+    /// </para>
     /// </summary>
-    public static void RecoverFromFailedInitialization(bool aggressive = false)
+    /// <param name="attempt">The attempt that just failed, 1-based.</param>
+    public static void RecoverFromFailedInitialization(int attempt = 1)
     {
         try
         {
@@ -92,16 +99,24 @@ public static class WebView2Lifecycle
             // best effort
         }
 
-        // v3.40.0: first try to *repair* the profile in use - the usual cause is a
-        // stale Chromium lock left behind by a session that was killed, and removing
-        // those markers brings the same profile back without creating another one.
-        if (!aggressive &&
-            WebView2EnvironmentProvider.TryRepairProfile(WebView2EnvironmentProvider.CurrentProfileFolder))
+        var profile = WebView2EnvironmentProvider.CurrentProfileFolder;
+
+        // v3.40.0: the usual cause is a stale Chromium lock left behind by a session
+        // that was killed; dropping those markers brings the same profile back.
+        if (attempt <= 1)
+        {
+            WebView2EnvironmentProvider.TryRepairProfile(profile);
+            return;
+        }
+
+        // Repair was not enough, so the profile itself is damaged: rebuild it in
+        // place. Same folder, no new one - the data directory stays one profile.
+        if (attempt == 2 && WebView2EnvironmentProvider.ResetProfile(profile))
             return;
 
-        // The repair did not bring the profile back (or the second attempt failed as
-        // well). Only then move on to a fresh profile - the maintenance pass removes
-        // the abandoned folder again, so this stays a rare, bounded fallback.
+        // The folder cannot even be emptied (something else holds it). This is the
+        // only path that adds a directory, and the maintenance sweep removes the
+        // abandoned one again.
         try
         {
             WebView2EnvironmentProvider.RotateAfterFailure();

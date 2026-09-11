@@ -129,16 +129,16 @@ public static class WebView2EnvironmentProvider
             var found = 0;
 
             foreach (var file in Directory.GetFiles(profileFolder, "Singleton*", SearchOption.AllDirectories))
-                removed += TryDelete(file, isDirectory: false, ref found);
+                removed += TryDelete(file, ref found);
 
             foreach (var file in Directory.GetFiles(profileFolder, "*.lock", SearchOption.AllDirectories))
-                removed += TryDelete(file, isDirectory: false, ref found);
+                removed += TryDelete(file, ref found);
 
             foreach (var file in Directory.GetFiles(profileFolder, "lockfile", SearchOption.AllDirectories))
-                removed += TryDelete(file, isDirectory: false, ref found);
+                removed += TryDelete(file, ref found);
 
             foreach (var folder in Directory.GetDirectories(profileFolder, "Singleton*", SearchOption.AllDirectories))
-                removed += TryDelete(folder, isDirectory: true, ref found);
+                removed += TryDelete(folder, ref found);
 
             if (removed > 0)
                 System.Diagnostics.Debug.WriteLine(
@@ -154,22 +154,60 @@ public static class WebView2EnvironmentProvider
         }
     }
 
-    private static int TryDelete(string path, bool isDirectory, ref int found)
+    /// <summary>
+    /// v3.40.0: rebuilds the profile in place - the folder stays, its contents go.
+    /// <para>
+    /// This is the escalation after <see cref="TryRepairProfile"/>. A session that
+    /// was killed while Chromium was writing can leave the profile damaged rather
+    /// than merely locked, and then no amount of marker removal brings it back.
+    /// Rebuilding the very same folder recovers the preview without adding another
+    /// folder to the data directory - a WebView2 profile is a cache, Chromium writes
+    /// it again on the next start.
+    /// </para>
+    /// </summary>
+    /// <returns>true when the profile is ready to be used again.</returns>
+    public static bool ResetProfile(string profileFolder)
     {
-        found++;
-
         try
         {
-            if (isDirectory)
+            if (!Directory.Exists(profileFolder))
+                return true;
+
+            if (WebView2Lifecycle.IsProfileHeldByBrowser(profileFolder))
+                return false; // still in use: not ours to empty
+
+            var complete = true;
+            foreach (var entry in Directory.GetFileSystemEntries(profileFolder))
+                complete &= TryDeletePath(entry);
+
+            return complete;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int TryDelete(string path, ref int found)
+    {
+        found++;
+        return TryDeletePath(path) ? 1 : 0;
+    }
+
+    private static bool TryDeletePath(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
                 Directory.Delete(path, recursive: true);
             else
                 File.Delete(path);
 
-            return 1;
+            return true;
         }
         catch
         {
-            return 0;
+            return false;
         }
     }
 

@@ -99,7 +99,8 @@ public abstract class OfficePanelBase : UserControl, IDisposable
                 }
 
                 // v3.36.0: restart our Chromium process group before retrying.
-                WebView2Lifecycle.RecoverFromFailedInitialization(aggressive: attempt >= 2);
+                // v3.40.0: repairs the profile first, rebuilds it in place second.
+                WebView2Lifecycle.RecoverFromFailedInitialization(attempt);
                 await Task.Delay(attempt == 1 ? 300 : 800);
                 continue;
             }

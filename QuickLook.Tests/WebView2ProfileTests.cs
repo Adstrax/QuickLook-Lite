@@ -63,6 +63,27 @@ internal class WebView2ProfileTests : SettingsFixture
             "a profile that does not exist yet needs no repair");
     }
 
+    public void ResetEmptiesTheProfileInPlace()
+    {
+        var profile = Path.Combine(Root, "WebView2_Data");
+        var eb = Path.Combine(profile, "EBWebView");
+        Directory.CreateDirectory(Path.Combine(eb, "Default"));
+        File.WriteAllText(Path.Combine(eb, "Local State"), "half written");
+        File.WriteAllText(Path.Combine(eb, "Default", "Preferences"), "half written");
+
+        Assert.True(WebView2EnvironmentProvider.ResetProfile(profile), "a damaged profile can be rebuilt");
+
+        Assert.True(Directory.Exists(profile), "the profile folder itself is kept");
+        Assert.Equal(0, Directory.GetFileSystemEntries(profile).Length, "its contents are gone");
+    }
+
+    public void ResetOfAMissingProfileIsANoOp()
+    {
+        Assert.True(
+            WebView2EnvironmentProvider.ResetProfile(Path.Combine(Root, "WebView2_Data")),
+            "a profile that does not exist yet needs no rebuild");
+    }
+
     public void CleanupKeepsTheProfileInUseAndDropsTheRotatedOnes()
     {
         var inUse = Path.Combine(Root, WebView2EnvironmentProvider.CurrentProfileName);
