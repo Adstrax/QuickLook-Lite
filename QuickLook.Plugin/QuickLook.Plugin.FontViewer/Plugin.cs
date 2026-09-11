@@ -31,7 +31,7 @@ public sealed partial class Plugin : IViewer, IMoreMenu
 {
     private const string ConfigDomain = "QuickLook.Plugin.FontViewer";
 
-    private WebfontPanel _panel;
+    private IFontPreviewPanel _panel;
     private string _currentPath;
     private PreviewMode _previewMode = PreviewMode.Pangram;
 
@@ -63,18 +63,38 @@ public sealed partial class Plugin : IViewer, IMoreMenu
     public void View(string path, ContextObject context)
     {
         _currentPath = path;
-        _panel = new WebfontPanel();
         _previewMode = (PreviewMode)SettingHelper.Get("LastPreviewMode", (int)PreviewMode.Pangram, ConfigDomain);
+
+        // v3.37.0: TrueType/OpenType/Collection fonts are rendered by WPF itself -
+        // that skips the ~300-400 ms WebView2 controller creation, the shared
+        // Chromium profile (which could go stale and blank the preview) and makes
+        // fonts the fastest format instead of the slowest. Only the compressed web
+        // font formats still need the browser engine.
+        var native = !IsWebFont(path);
+        _panel = native ? new NativeFontPanel() : new WebfontPanel();
         ApplyPreviewMode(path);
 
-        context.ViewerContent = _panel;
+        context.ViewerContent = _panel.View;
         context.Title = Path.GetFileName(path);
+
+        if (native)
+        {
+            // Nothing to wait for - the WPF render tree is already built.
+            context.IsBusy = false;
+            return;
+        }
 
         _ = Task.Run(() =>
         {
             _ = _panel.WaitForFontSent();
             context.IsBusy = false;
         });
+    }
+
+    private static bool IsWebFont(string path)
+    {
+        return path.EndsWith(".woff", StringComparison.OrdinalIgnoreCase) ||
+               path.EndsWith(".woff2", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ApplyPreviewMode(string path)

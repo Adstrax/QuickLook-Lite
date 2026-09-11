@@ -30,11 +30,14 @@ using System.Threading;
 
 namespace QuickLook.Plugin.FontViewer;
 
-public class WebfontPanel : WebpagePanel
+public class WebfontPanel : WebpagePanel, IFontPreviewPanel
 {
     protected const string _resourcePrefix = "QuickLook.Plugin.FontViewer.Resources.";
     protected internal static readonly Dictionary<string, byte[]> _resources = [];
     protected byte[] _homePage;
+
+    /// <summary>v3.37.0: shared surface with <see cref="NativeFontPanel"/>.</summary>
+    public System.Windows.UIElement View => this;
     protected ObservableFileStream _fontStream = null;
     private string _pendingIconFontPath;
     // v3.36.0: set when the page could not load (e.g. the WebView2 controller
