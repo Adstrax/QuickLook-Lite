@@ -16,6 +16,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using QuickLook.Common.Helpers;
 using System;
 using System.ComponentModel;
@@ -177,7 +178,7 @@ internal class Updater
     /// v3.35.0: asks the user what to do about <paramref name="version"/> and acts
     /// on the answer. Runs on the UI thread - the prompt is a modal window.
     /// </summary>
-    private static void AskAndUpdate(dynamic release, string version)
+    private static void AskAndUpdate(JObject release, string version)
     {
         if (UpdateDialog.Ask(version))
         {
@@ -196,7 +197,7 @@ internal class Updater
     /// v3.35.0: downloads and installs the release, then exits so the update script
     /// can replace the files. Runs on a background thread.
     /// </summary>
-    private static void RunUpdate(dynamic release, string version)
+    private static void RunUpdate(JObject release, string version)
     {
         Application.Current.Dispatcher.Invoke(() =>
             TrayIconManager.ShowNotification(string.Empty,
@@ -232,14 +233,14 @@ internal class Updater
     /// cannot start.
     /// Returns false (without shutting down) when auto-update is impossible.
     /// </summary>
-    private static bool TryAutoUpdate(dynamic release)
+    private static bool TryAutoUpdate(JObject release)
     {
         try
         {
             var tag = (string)release["tag_name"];
 
             string downloadUrl = null;
-            foreach (var asset in release["assets"])
+            foreach (var asset in release["assets"] ?? new JArray())
             {
                 var name = (string)asset["name"];
                 if (string.IsNullOrEmpty(name) ||
@@ -478,21 +479,24 @@ internal class Updater
     /// Test hook for the auto-update pipeline: feeds a (possibly fake) release
     /// object into the same download/install path used by CheckForUpdates.
     /// </summary>
-    internal static bool RunAutoUpdate(dynamic release) => TryAutoUpdate(release);
+    internal static bool RunAutoUpdate(JObject release) => TryAutoUpdate(release);
 
     /// <summary>
     /// v3.35.0 test hook: shows the update prompt for a (possibly fake) release and
     /// acts on the answer, exactly like a manual update check does.
     /// </summary>
-    internal static void PromptForTest(dynamic release)
+    internal static void PromptForTest(JObject release)
     {
         var version = (string)release["tag_name"] ?? "0.0.0";
         AskAndUpdate(release, version);
     }
 
-    private static dynamic DownloadJson(string url)
+    private static JObject DownloadJson(string url)
     {
         var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
-        return JsonConvert.DeserializeObject<dynamic>(json);
+        // v3.36.1: DeserializeObject<dynamic> made the whole call dynamically bound
+        // and it threw "Cannot implicitly convert type 'void' to 'object'" at run
+        // time, so every update check failed before it even looked at the release.
+        return JObject.Parse(json);
     }
 }
