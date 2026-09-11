@@ -2,6 +2,49 @@
 
 > QuickLookNext Changelog starting from version `4.0.0`.
 
+## QuickLook-Next 3.40.0
+
+### 修复（WebView2 profile 不再越积越多）
+
+- 以前的处理方式：控制器初始化失败就换一个 profile 目录（`WebView2_Data_1`、
+  `_2`…），每失败一次多一个目录，而每个目录都是十几到上百 MB 的缓存，于是
+  数据目录越用越臃肿
+- 现在先**原地修复**当前 profile：绝大多数失败只是上次进程被强杀后 Chromium
+  残留的锁标记（`lockfile` / `SingletonLock` / `SingletonSocket` / `*.lock`），
+  只要没有浏览器进程占用该目录，就删掉这些标记继续用同一个 profile
+- 退出时主动关闭 WebView2（`ProcessExit` → 释放控制器并等 Chromium 退出），
+  从源头减少残留锁标记
+- 轮换只作为最后手段（连续两次仍失败），轮换后遗留的目录会在空闲清理时删除；
+  正在使用的那个 profile 永远不会被删除
+- 新增 4 个单元测试：修复不误删 profile 内容、健康 profile 不被改动、遗留目录
+  被清理、正在使用的 profile 不被删除
+
+## QuickLook-Next 3.39.0
+
+### 优化（WebView2 控制器池化扩展到全部网页类预览）
+
+- html / Markdown / CHM / Mail / SVG / drawio / Graphviz / PlantUML / Excalidraw
+  现在共用同一个 WebView2 控制器池（此前只有 Office 预览受益），连续预览时
+  不用再反复创建 Chromium
+- 实测 5 个网页类文件连续预览：422/187/325/165/**158ms**，Chromium 进程数稳定，
+  内存稳定在 155→180MB
+- 托盘菜单自定义标题里多余的 `&` 访问键标记不再显示
+
+## QuickLook-Next 3.38.0
+
+### 优化（数据库预览先出窗口）
+
+- SQLite 预览改为窗口立即显示、表枚举与查询放到后台线程，正文先给占位再填充
+- 实测 542ms（甚至更久）→ **82/90ms**，首次 381ms
+
+## QuickLook-Next 3.37.0
+
+### 优化（字体预览改用原生渲染）
+
+- TTF/OTF 预览不再走 WebView2，改用 WPF 原生绘制字符表与样例文本
+- 实测 465–1603ms → **266ms（首次）/ 109ms / 134ms**
+- WOFF / WOFF2 仍由 WebView2 渲染（原生渲染不支持这两种压缩字体）
+
 ## QuickLook-Next 3.36.0
 
 ### 修复（WebView2 初始化失败）

@@ -29,6 +29,11 @@
     <ItemGroup>
         <ProjectReference Include="..\QuickLook.Common\QuickLook.Common.csproj" />
         <ProjectReference Include="..\QuickLookNext\QuickLookNext.csproj" />
+        <!--
+            v3.40.0: the WebView2 profile handling (stale lock repair, leftover
+            sweep) lives in the shared host library.
+        -->
+        <ProjectReference Include="..\QuickLook.Plugin.Shared\QuickLook.Plugin.Shared.csproj" />
     </ItemGroup>
 
 </Project>

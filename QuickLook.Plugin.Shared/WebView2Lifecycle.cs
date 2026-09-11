@@ -39,6 +39,14 @@ namespace QuickLook.Plugin.Shared;
 /// </summary>
 public static class WebView2Lifecycle
 {
+    static WebView2Lifecycle()
+    {
+        // v3.40.0: close WebView2 on the way out. A process that disappears while
+        // Chromium is still running leaves singleton lock markers in the profile,
+        // and those are what used to force the profile to be rotated.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => ShutdownAll();
+    }
+
     private static readonly object Sync = new();
     private static readonly HashSet<WebView2> Active = [];
 
@@ -64,7 +72,7 @@ public static class WebView2Lifecycle
     /// pooled controls first) makes the next attempt start from a clean browser.
     /// </para>
     /// </summary>
-    public static void RecoverFromFailedInitialization()
+    public static void RecoverFromFailedInitialization(bool aggressive = false)
     {
         try
         {
@@ -84,8 +92,16 @@ public static class WebView2Lifecycle
             // best effort
         }
 
-        // v3.36.0: and move to a fresh profile folder, so the next control does not
-        // inherit the state that made Chromium refuse to start.
+        // v3.40.0: first try to *repair* the profile in use - the usual cause is a
+        // stale Chromium lock left behind by a session that was killed, and removing
+        // those markers brings the same profile back without creating another one.
+        if (!aggressive &&
+            WebView2EnvironmentProvider.TryRepairProfile(WebView2EnvironmentProvider.CurrentProfileFolder))
+            return;
+
+        // The repair did not bring the profile back (or the second attempt failed as
+        // well). Only then move on to a fresh profile - the maintenance pass removes
+        // the abandoned folder again, so this stays a rare, bounded fallback.
         try
         {
             WebView2EnvironmentProvider.RotateAfterFailure();
@@ -93,6 +109,83 @@ public static class WebView2Lifecycle
         catch
         {
             // best effort
+        }
+    }
+
+    /// <summary>
+    /// v3.40.0: whether a running WebView2 browser (of ours) has the given profile
+    /// folder open. Matching the folder in the command line is the same trick the
+    /// idle reaper uses, so both agree on what "ours" means.
+    /// </summary>
+    public static bool IsProfileHeldByBrowser(string profileFolder)
+    {
+        if (string.IsNullOrEmpty(profileFolder))
+            return false;
+
+        try
+        {
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName("msedgewebview2"))
+            {
+                try
+                {
+                    var commandLine = NativeMethods.ProcessCommandLineReader.GetCommandLine(process.Id);
+                    if (commandLine != null &&
+                        commandLine.IndexOf(profileFolder, StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+        }
+        catch
+        {
+            // Cannot tell: assume it is free (the caller only repairs lock markers).
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// v3.40.0: shuts every WebView2 control down before the process exits, so
+    /// Chromium gets a chance to close cleanly and does not leave the stale lock
+    /// markers described in
+    /// <see cref="WebView2EnvironmentProvider.TryRepairProfile"/> behind.
+    /// </summary>
+    public static void ShutdownAll()
+    {
+        List<WebView2> controls;
+
+        lock (Sync)
+        {
+            controls = [.. Active];
+            Active.Clear();
+            _idleTimer?.Dispose();
+            _idleTimer = null;
+        }
+
+        foreach (var webView in controls)
+        {
+            try
+            {
+                webView.Dispose();
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        WebView2ControlPool.ClearIdle();
+
+        // Give Chromium a moment to exit on its own before the process disappears.
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            if (Process.GetProcessesByName("msedgewebview2").Length == 0)
+                return;
+
+            Thread.Sleep(100);
         }
     }
 
@@ -183,6 +276,10 @@ public static class WebView2Lifecycle
         }
 
         ReapBrowserProcesses();
+
+        // v3.40.0: the browser is down now, so this is both the cheapest and the
+        // safest moment to drop the profile folders abandoned by earlier failures.
+        WebView2EnvironmentProvider.CleanupLeftoverProfiles();
     }
 
     private static void CloseLeftovers(List<WebView2> leftovers)

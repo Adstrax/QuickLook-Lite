@@ -244,7 +244,7 @@ public class WebpagePanel : UserControl
 
                 // v3.36.0: give the browser process group a clean restart before
                 // trying again - that is what makes a stale profile recoverable.
-                WebView2Lifecycle.RecoverFromFailedInitialization();
+                WebView2Lifecycle.RecoverFromFailedInitialization(aggressive: attempt >= 2);
                 await Task.Delay(attempt == 1 ? 300 : 800);
                 continue;
             }
