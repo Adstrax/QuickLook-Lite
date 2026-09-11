@@ -139,6 +139,12 @@ public static class SettingHelper
         if (!IsWritable(local))
             return WithTrailingSeparator(roaming);
 
+        // v3.39.0 note: this deliberately COPIES the old profile and leaves the
+        // original in place. Deleting it looked tidier, but the same %APPDATA%
+        // folder is also used by other installations of the app (a portable build
+        // next to the sources, an older version still installed), so removing it
+        // would destroy settings that belong to someone else. Leftovers are
+        // harmless - the app never reads them once the local profile exists.
         TryMigrateProfile(roaming, local);
 
         return WithTrailingSeparator(local);
@@ -193,6 +199,7 @@ public static class SettingHelper
             var userPlugins = Path.Combine(roaming, "QuickLook.Plugin");
             if (Directory.Exists(userPlugins))
                 CopyDirectory(userPlugins, Path.Combine(local, "QuickLook.Plugin"));
+
         }
         catch
         {
