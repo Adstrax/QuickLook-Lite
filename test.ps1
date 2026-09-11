@@ -83,7 +83,7 @@ public class WinEnumRect {
 }
 
 # ---------- 1. 清理旧实例 ----------
-Write-Host "== 1/8 清理旧实例 ==" -ForegroundColor Cyan
+Write-Host "== 1/9 清理旧实例 ==" -ForegroundColor Cyan
 # v3.31.0: 进程名是 "QuickLook-Next"（程序集名带连字符）。旧写法永远匹配不到，
 # 于是托盘里残留的实例会让下面启动的实例作为「第二实例」转发后立即退出，
 # 后续所有断言都在检查一个已经死掉的进程 —— 表现为一整片莫名其妙的失败。
@@ -95,7 +95,7 @@ if ($null -ne (Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue)
 }
 
 # ---------- 2. 构建 ----------
-Write-Host "== 2/8 全量构建 ==" -ForegroundColor Cyan
+Write-Host "== 2/9 全量构建 ==" -ForegroundColor Cyan
 Get-ChildItem (Join-Path $root 'Build\Release') -Force -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force
 # v1.2.34: build the whole solution in one parallel invocation instead of
@@ -105,7 +105,7 @@ Assert ($LASTEXITCODE -eq 0) '构建 QuickLookNext.slnx'
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # ---------- 3. 准备测试文件 ----------
-Write-Host "== 3/8 准备测试文件 ==" -ForegroundColor Cyan
+Write-Host "== 3/9 准备测试文件 ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $smoke | Out-Null
 # v3.42.0: the preview warm-up proves itself by writing this file, so a leftover
 # from an earlier run must not be able to satisfy the assertion below.
@@ -227,7 +227,7 @@ $pptxZip.Dispose()
 $pptxFs.Dispose()
 
 # ---------- 4. 启动 + 插件加载 ----------
-Write-Host "== 4/8 启动并验证插件加载 ==" -ForegroundColor Cyan
+Write-Host "== 4/9 启动并验证插件加载 ==" -ForegroundColor Cyan
 $before = Get-LogLength
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu' -PassThru
 $trayMenuSeen = $false
@@ -256,7 +256,7 @@ Assert ($dwmDiag -match 'more-menu-opened=true') 'More 菜单复用同一 Acryli
 Assert ((Get-LogLength) -eq $before) '插件加载无失败（日志零新增）'
 
 # ---------- 5. 预览测试 ----------
-Write-Host "== 5/8 预览测试 ==" -ForegroundColor Cyan
+Write-Host "== 5/9 预览测试 ==" -ForegroundColor Cyan
 $previews = @(
     @{ File = 'test.png'; Title = 'test.png' },
     @{ File = 'test.txt'; Title = 'test.txt' },
@@ -325,12 +325,48 @@ foreach ($pv in $previews) {
     }
 }
 
-# ---------- 6. 自动更新（真实文件替换） ----------
+# ---------- 6. 性能与内存基线 ----------
+# v3.43.0: record "first preview right after startup" latency and idle memory in
+# baseline.txt, with a deliberately loose ceiling. Every problem fixed recently
+# (the WMI query stalling the first window render for ~2 s, the warm-up that did
+# nothing, the controller pool that was not being used) was found by hand-made
+# measurements - nothing guarded against them coming back. This is that guard.
+Write-Host "== 6/9 性能与内存基线 ==" -ForegroundColor Cyan
+
+$measureOutput = & pwsh -NoProfile -File (Join-Path $root 'Scripts\measure-preview.ps1') `
+    -Files test.png,test.txt,test.md -StartupWaitMs 1500 -Memory
+$measureOutput | ForEach-Object { Write-Host $_ }
+
+$baseline = New-Object System.Collections.Generic.List[string]
+$firstPreviewMs = @{}
+foreach ($line in $measureOutput) {
+    if ($line -match '^(?<file>\S+)\s+(?<ms>\d+)\s+ms$') {
+        $firstPreviewMs[$Matches['file']] = [int]$Matches['ms']
+        $baseline.Add("$($Matches['file'])=$($Matches['ms'])ms")
+    }
+    elseif ($line -match '^memory\|(?<sample>.+)$') {
+        $baseline.Add("memory=$($Matches['sample'])")
+    }
+}
+$baseline | Set-Content -Path (Join-Path $smoke 'baseline.txt') -Encoding UTF8
+
+# 上限放得很宽：正常 100-350ms，WMI 那次回归是 1.2-1.8s。
+foreach ($file in @('test.png', 'test.txt', 'test.md')) {
+    if ($firstPreviewMs.ContainsKey($file)) {
+        Assert ($firstPreviewMs[$file] -lt 1000) `
+            "启动后首次预览 $file 在 1000ms 内（实测 $($firstPreviewMs[$file])ms）"
+    }
+    else {
+        Assert $false "启动后首次预览 $file 有测量结果"
+    }
+}
+
+# ---------- 7. 自动更新（真实文件替换） ----------
 # v3.40.0: 更新包下载后由脚本在应用退出后替换文件。该脚本曾经坏在
 # xcopy /EXCLUDE:"<文件>"（xcopy 读不了带引号的排除文件）——备份被判失败、更新中
 # 止，刚下载的安装包被丢弃，应用又回到旧版本。这里用真实生成的脚本对一个副本做
 # 一次完整替换，断言：文件换新、UserData 保留、临时目录被清理。
-Write-Host "== 6/8 自动更新流程 ==" -ForegroundColor Cyan
+Write-Host "== 7/9 自动更新流程 ==" -ForegroundColor Cyan
 
 # 脚本会等待名为 QuickLook-Next.exe 的进程退出，先清干净再跑。
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -400,7 +436,7 @@ Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托�
 Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
 
 # ---------- 6. Shell 集成验证（空格键链路：Explorer 选区读取） ----------
-Write-Host "== 7/8 Shell 集成验证 ==" -ForegroundColor Cyan
+Write-Host "== 8/9 Shell 集成验证 ==" -ForegroundColor Cyan
 $shellProbe = @"
 using System;
 using System.Reflection;
@@ -515,7 +551,7 @@ else {
 }
 
 # ---------- 7. 清理 ----------
-Write-Host "== 8/8 清理 ==" -ForegroundColor Cyan
+Write-Host "== 9/9 清理 ==" -ForegroundColor Cyan
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 # v3.31.0: also clean up anything a preview request may have spawned while the
 # main instance was gone, so the next run starts from a known state.

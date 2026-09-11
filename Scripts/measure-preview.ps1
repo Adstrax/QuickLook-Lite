@@ -9,7 +9,9 @@
 param(
     [string[]]$Files = @('test.png', 'test.md', 'test.pptx', 'test.xlsx'),
     [int]$StartupWaitMs = 1500,
-    [int]$TimeoutMs = 20000
+    [int]$TimeoutMs = 20000,
+    # Also record the idle memory sample (ql-smoke\memory.txt) for baseline runs.
+    [switch]$Memory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,7 +27,12 @@ Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process 
 Start-Sleep -Milliseconds 800
 Remove-Item -LiteralPath $timing -Force -ErrorAction SilentlyContinue
 
-Start-Process -FilePath $exe -ArgumentList '/autorun', '/test-timing', '/test-no-focusmonitor'
+$appArgs = @('/autorun', '/test-timing', '/test-no-focusmonitor')
+if ($Memory) { $appArgs += '/test-memory' }
+
+if ($Memory) { Remove-Item -LiteralPath (Join-Path $smoke 'memory.txt') -Force -ErrorAction SilentlyContinue }
+
+Start-Process -FilePath $exe -ArgumentList $appArgs
 Start-Sleep -Milliseconds $StartupWaitMs
 
 Write-Host ("{0,-18} {1}" -f '文件', '请求->内容就绪')
@@ -63,6 +70,15 @@ foreach ($file in $Files) {
     }
 
     Start-Sleep -Milliseconds 400
+}
+
+# When -Memory was given, hand the last idle sample to the caller (the smoke test
+# records it as the memory baseline) before the process goes away.
+if ($Memory) {
+    $memFile = Join-Path $smoke 'memory.txt'
+    if (Test-Path -LiteralPath $memFile) {
+        Write-Host ('memory|' + (Get-Content -LiteralPath $memFile | Select-Object -Last 1))
+    }
 }
 
 Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
