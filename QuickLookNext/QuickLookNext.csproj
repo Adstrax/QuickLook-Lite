@@ -155,7 +155,9 @@
             <Link>Properties\GitVersion.cs</Link>
         </Compile>
     </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Management" Version="8.0.0" />
-  </ItemGroup>
+  <!--
+      v3.40.0: System.Management is gone. It was only used for the
+      "SELECT * FROM Win32_VideoController" GPU probe, which now reads the display
+      class registry key instead - the WMI query cost ~2 s of the first preview.
+  -->
 </Project>

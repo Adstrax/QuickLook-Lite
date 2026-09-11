@@ -180,7 +180,7 @@ internal class Updater
     /// </summary>
     private static void AskAndUpdate(JObject release, string version)
     {
-        if (UpdateDialog.Ask(version))
+        if (UpdateDialog.Ask(version, (string)release["html_url"]))
         {
             _ = Task.Run(() => RunUpdate(release, version));
             return;
@@ -268,12 +268,19 @@ internal class Updater
                 return false;
 
             var workDir = Path.Combine(Path.GetTempPath(), "QuickLookNext.Update");
+
+            // v3.40.1: start from an empty work directory. The update script used to
+            // delete it at the end, but it deleted itself first, and a batch file
+            // that is removed while it runs stops executing - so every failed
+            // attempt left its package behind (~65 MB each) in %TEMP%.
+            if (Directory.Exists(workDir))
+                Directory.Delete(workDir, recursive: true);
+
             Directory.CreateDirectory(workDir);
 
             var zipPath = Path.Combine(workDir, $"QuickLook-Next-{tag}.zip");
             var extractDir = Path.Combine(workDir, "new");
             var logPath = Path.Combine(workDir, "update.log");
-            var excludePath = Path.Combine(workDir, "exclude.txt");
 
             if (Directory.Exists(extractDir))
                 Directory.Delete(extractDir, recursive: true);
@@ -301,13 +308,10 @@ internal class Updater
                 $"url     {downloadUrl}{Environment.NewLine}" +
                 $"sha256  {sha256}{Environment.NewLine}");
 
-            // xcopy /EXCLUDE matches substrings of the full path; keep the
-            // portable user data (settings, WebView2 cache) out of the backup
-            // and out of the replacement.
-            File.WriteAllText(excludePath, @"\UserData\" + Environment.NewLine);
-
-            var batPath = Path.Combine(workDir, "update.cmd");
-            File.WriteAllText(batPath, BuildUpdateScript(appDir, extractDir, workDir, logPath, excludePath));
+            // v3.40.1: the script lives next to the work directory, not inside it,
+            // so it can delete the whole work directory before removing itself.
+            var batPath = Path.Combine(Path.GetTempPath(), "QuickLookNext-update.cmd");
+            File.WriteAllText(batPath, BuildUpdateScript(appDir, extractDir, workDir, logPath));
 
             Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{batPath}\"")
             {
@@ -394,8 +398,19 @@ internal class Updater
         return false;
     }
 
+    /// <summary>
+    /// v3.40.0: the script that swaps the installed files once the app has exited.
+    /// <para>
+    /// v3.40.1: it used to copy with <c>xcopy /EXCLUDE:"&lt;file&gt;"</c>. xcopy cannot
+    /// read an exclusion file whose path is quoted ("Can't read file") - it fails,
+    /// the backup is considered failed and the update aborts. Every update since
+    /// that line was introduced therefore downloaded the package, threw it away and
+    /// restarted the old version. The copy is now done with robocopy, which handles
+    /// quoted paths and excludes a directory by name (<c>/XD</c>).
+    /// </para>
+    /// </summary>
     private static string BuildUpdateScript(string appDir, string extractDir, string workDir,
-        string logPath, string excludePath)
+        string logPath)
     {
         return $"""
             @echo off
@@ -414,13 +429,15 @@ internal class Updater
             )
             if exist "%QL_BAK%" rd /S /Q "%QL_BAK%" >nul 2>&1
             mkdir "%QL_BAK%" >nul 2>&1
-            xcopy "%QL_APP%\*" "%QL_BAK%\" /E /Y /Q /I /EXCLUDE:"{excludePath}" >> "%QL_LOG%" 2>&1
-            if errorlevel 1 goto abort
+            rem Keep the portable user data (settings, WebView2 cache) out of both
+            rem the backup and the replacement.
+            robocopy "%QL_APP%" "%QL_BAK%" /E /XD "%QL_APP%\UserData" /R:2 /W:1 /NFL /NDL /NJH /NJS >> "%QL_LOG%" 2>&1
+            if errorlevel 8 goto abort
             for %%f in ("%QL_APP%\*") do del /Q "%%f" >nul 2>&1
             for /d %%d in ("%QL_APP%\*") do if /I not "%%~nxd"=="UserData" rd /S /Q "%%d" >nul 2>&1
             if exist "%QL_BAK%\portable.lock" copy /Y "%QL_BAK%\portable.lock" "%QL_APP%\portable.lock" >nul 2>&1
-            xcopy "%QL_SRC%\*" "%QL_APP%\" /E /Y /Q /I >> "%QL_LOG%" 2>&1
-            if errorlevel 1 goto rollback
+            robocopy "%QL_SRC%" "%QL_APP%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS >> "%QL_LOG%" 2>&1
+            if errorlevel 8 goto rollback
             if not exist "%QL_APP%\QuickLook-Next.exe" goto rollback
             if exist "%QL_APP%\QuickLook.Common.dll" goto installed
             if exist "%QL_APP%\lib\QuickLook.Common.dll" goto installed
@@ -432,15 +449,15 @@ internal class Updater
             echo [%DATE% %TIME%] copy failed - restoring backup>> "%QL_LOG%"
             for %%f in ("%QL_APP%\*") do del /Q "%%f" >nul 2>&1
             for /d %%d in ("%QL_APP%\*") do if /I not "%%~nxd"=="UserData" rd /S /Q "%%d" >nul 2>&1
-            xcopy "%QL_BAK%\*" "%QL_APP%\" /E /Y /Q /I >> "%QL_LOG%" 2>&1
+            robocopy "%QL_BAK%" "%QL_APP%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS >> "%QL_LOG%" 2>&1
             goto restart
             :abort
             echo [%DATE% %TIME%] backup failed - update aborted>> "%QL_LOG%"
             :restart
             copy /Y "%QL_LOG%" "%TEMP%\QuickLookNext-update.log" >nul 2>&1
             start "" "%QL_APP%\QuickLook-Next.exe"
-            del "%~f0" >nul 2>&1
             rd /S /Q "%QL_WORK%" >nul 2>&1
+            del "%~f0" >nul 2>&1
             """;
     }
 
@@ -480,6 +497,71 @@ internal class Updater
     /// object into the same download/install path used by CheckForUpdates.
     /// </summary>
     internal static bool RunAutoUpdate(JObject release) => TryAutoUpdate(release);
+
+    /// <summary>
+    /// v3.40.0: tells the user how the last update went.
+    /// <para>
+    /// The file replacement happens in a script after the app exits, so a failure
+    /// there was invisible: the app simply came back at the old version with nothing
+    /// to explain it - which is exactly how the broken update script went unnoticed
+    /// for several releases. The script leaves a log behind; anything that did not
+    /// end in "update ok" is reported once, with a way to download by hand.
+    /// </para>
+    /// </summary>
+    internal static void ReportLastUpdateResult()
+    {
+        try
+        {
+            var log = Path.Combine(Path.GetTempPath(), "QuickLookNext-update.log");
+            if (!File.Exists(log))
+                return;
+
+            // Report each run exactly once; the log is rewritten by the next attempt.
+            var text = File.ReadAllText(log);
+            File.Delete(log);
+
+            if (text.Contains("update ok", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var reason = DescribeFailure(text);
+            ProcessHelper.WriteLog($"Auto update did not complete: {reason}");
+
+            Application.Current.Dispatcher.Invoke(() =>
+                TrayIconManager.ShowNotification(string.Empty,
+                    string.Format(
+                        TranslationHelper.Get("Update_FailedNotice",
+                            failsafe: "上次自动更新未完成（{0}）。点击打开下载页面手动更新。"),
+                        reason),
+                    timeout: 20000,
+                    clickEvent: OpenReleasesPage));
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e.Message);
+        }
+    }
+
+    private static string DescribeFailure(string log)
+    {
+        if (log.Contains("backup failed", StringComparison.OrdinalIgnoreCase))
+            return "备份现有文件失败";
+
+        if (log.Contains("copy failed", StringComparison.OrdinalIgnoreCase))
+            return "写入新版本文件失败";
+
+        if (log.Contains("Can't read file", StringComparison.OrdinalIgnoreCase))
+            return "更新脚本读取临时文件失败";
+
+        return "详见 %TEMP%\\QuickLookNext-update.log";
+    }
+
+    /// <summary>
+    /// Test hook: the update script for the given paths, so a test can run the real
+    /// file replacement without going through GitHub.
+    /// </summary>
+    internal static string BuildUpdateScriptForTest(string appDir, string extractDir,
+        string workDir, string logPath)
+        => BuildUpdateScript(appDir, extractDir, workDir, logPath);
 
     /// <summary>
     /// v3.35.0 test hook: shows the update prompt for a (possibly fake) release and

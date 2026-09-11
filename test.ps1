@@ -1,4 +1,4 @@
-﻿# QuickLookNext 冒烟测试：每次提交前必须运行并通过。
+# QuickLookNext 冒烟测试：每次提交前必须运行并通过。
 # 覆盖：全量构建 -> 启动 -> 插件加载无失败 -> PNG/文本/SQLite 预览 -> 窗口断言 -> 日志零新增错误。
 #
 # 用法: .\test.ps1
@@ -83,7 +83,7 @@ public class WinEnumRect {
 }
 
 # ---------- 1. 清理旧实例 ----------
-Write-Host "== 1/6 清理旧实例 ==" -ForegroundColor Cyan
+Write-Host "== 1/8 清理旧实例 ==" -ForegroundColor Cyan
 # v3.31.0: 进程名是 "QuickLook-Next"（程序集名带连字符）。旧写法永远匹配不到，
 # 于是托盘里残留的实例会让下面启动的实例作为「第二实例」转发后立即退出，
 # 后续所有断言都在检查一个已经死掉的进程 —— 表现为一整片莫名其妙的失败。
@@ -95,7 +95,7 @@ if ($null -ne (Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue)
 }
 
 # ---------- 2. 构建 ----------
-Write-Host "== 2/6 全量构建 ==" -ForegroundColor Cyan
+Write-Host "== 2/8 全量构建 ==" -ForegroundColor Cyan
 Get-ChildItem (Join-Path $root 'Build\Release') -Force -ErrorAction SilentlyContinue |
     Remove-Item -Recurse -Force
 # v1.2.34: build the whole solution in one parallel invocation instead of
@@ -105,7 +105,7 @@ Assert ($LASTEXITCODE -eq 0) '构建 QuickLookNext.slnx'
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # ---------- 3. 准备测试文件 ----------
-Write-Host "== 3/6 准备测试文件 ==" -ForegroundColor Cyan
+Write-Host "== 3/8 准备测试文件 ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $smoke | Out-Null
 Add-Type -AssemblyName System.Drawing
 $bmp = New-Object System.Drawing.Bitmap 256, 256
@@ -224,7 +224,7 @@ $pptxZip.Dispose()
 $pptxFs.Dispose()
 
 # ---------- 4. 启动 + 插件加载 ----------
-Write-Host "== 4/6 启动并验证插件加载 ==" -ForegroundColor Cyan
+Write-Host "== 4/8 启动并验证插件加载 ==" -ForegroundColor Cyan
 $before = Get-LogLength
 $p = Start-Process -FilePath $exe -ArgumentList '/autorun /test-tray-menu' -PassThru
 $trayMenuSeen = $false
@@ -253,7 +253,7 @@ Assert ($dwmDiag -match 'more-menu-opened=true') 'More 菜单复用同一 Acryli
 Assert ((Get-LogLength) -eq $before) '插件加载无失败（日志零新增）'
 
 # ---------- 5. 预览测试 ----------
-Write-Host "== 5/6 预览测试 ==" -ForegroundColor Cyan
+Write-Host "== 5/8 预览测试 ==" -ForegroundColor Cyan
 $previews = @(
     @{ File = 'test.png'; Title = 'test.png' },
     @{ File = 'test.txt'; Title = 'test.txt' },
@@ -322,9 +322,73 @@ foreach ($pv in $previews) {
     }
 }
 
-# ---------- 6. 清理 ----------
+# ---------- 6. 自动更新（真实文件替换） ----------
+# v3.40.0: 更新包下载后由脚本在应用退出后替换文件。该脚本曾经坏在
+# xcopy /EXCLUDE:"<文件>"（xcopy 读不了带引号的排除文件）——备份被判失败、更新中
+# 止，刚下载的安装包被丢弃，应用又回到旧版本。这里用真实生成的脚本对一个副本做
+# 一次完整替换，断言：文件换新、UserData 保留、临时目录被清理。
+Write-Host "== 6/8 自动更新流程 ==" -ForegroundColor Cyan
+
+# 脚本会等待名为 QuickLook-Next.exe 的进程退出，先清干净再跑。
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+$updRoot = Join-Path $root 'Build\UpdateSmoke'
+Remove-Item -LiteralPath $updRoot -Recurse -Force -ErrorAction SilentlyContinue
+$updApp = Join-Path $updRoot 'app'
+$updSrc = Join-Path $updRoot 'new'
+$updWork = Join-Path $env:TEMP 'QuickLookNext.Update'
+New-Item -ItemType Directory -Force -Path $updApp, $updSrc,
+    (Join-Path $updApp 'UserData'), $updWork | Out-Null
+
+foreach ($name in @('QuickLook-Next.exe', 'QuickLook-Next.dll', 'QuickLook.Common.dll')) {
+    Copy-Item -LiteralPath (Join-Path $root "Build\Release\$name") -Destination $updApp -Force
+}
+Set-Content -Path (Join-Path $updApp 'old-only.txt') -Value 'old' -Encoding UTF8
+Set-Content -Path (Join-Path $updApp 'UserData\keep.txt') -Value 'keep' -Encoding UTF8
+
+# 模拟“解压好的安装包”：只需包含更新前的完整性检查所需的入口文件。
+Copy-Item -LiteralPath (Join-Path $root 'Build\Release\QuickLook-Next.exe') -Destination $updSrc -Force
+Copy-Item -LiteralPath (Join-Path $root 'Build\Release\QuickLook.Common.dll') -Destination $updSrc -Force
+Set-Content -Path (Join-Path $updSrc 'new-only.txt') -Value 'new' -Encoding UTF8
+
+Set-Content -Path (Join-Path $smoke 'update-request.txt') -Encoding UTF8 -Value @(
+    $updApp, $updSrc, $updWork, (Join-Path $updWork 'update.log'))
+
+$updScript = Join-Path $env:TEMP 'QuickLookNext-update.cmd'
+$updLog = Join-Path $env:TEMP 'QuickLookNext-update.log'
+Remove-Item -LiteralPath $updScript, $updLog -Force -ErrorAction SilentlyContinue
+
+Start-Process -FilePath $exe -ArgumentList '/test-update-script' -Wait -WindowStyle Hidden
+Assert (Test-Path -LiteralPath $updScript) '更新脚本已生成'
+
+& cmd.exe /c $updScript | Out-Null
+for ($i = 0; $i -lt 60 -and -not (Test-Path -LiteralPath $updLog); $i++) { Start-Sleep -Milliseconds 500 }
+$updText = if (Test-Path -LiteralPath $updLog) { Get-Content -LiteralPath $updLog -Raw } else { '' }
+
+Assert ($updText -match 'update ok') '更新脚本完成替换（日志 update ok）'
+Assert (Test-Path (Join-Path $updApp 'new-only.txt')) '新版本文件已就位'
+Assert (-not (Test-Path (Join-Path $updApp 'old-only.txt'))) '旧版本文件已清理'
+Assert (Test-Path (Join-Path $updApp 'UserData\keep.txt')) '用户数据（UserData）未被动过'
+Assert (-not (Test-Path -LiteralPath $updWork)) '更新临时目录已清理（不再堆积安装包）'
+
+# 脚本最后会尝试启动副本，收尾掉，避免影响后面的步骤。
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -like "$updRoot*" } | Stop-Process -Force
+
+# v3.41.0: 更新提示框 —— 用假 release 打开真实对话框，它在冒烟模式下 2 秒后自动
+# 关闭并写下诊断（材质 + 尺寸 + 按钮文案），据此断言材质与按钮。
+$dialogDiag = Join-Path $smoke 'update-dialog.txt'
+Remove-Item -LiteralPath $dialogDiag -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath $exe -ArgumentList '/test-update-prompt'
+for ($i = 0; $i -lt 30 -and -not (Test-Path -LiteralPath $dialogDiag); $i++) { Start-Sleep -Milliseconds 300 }
+$dialogText = if (Test-Path -LiteralPath $dialogDiag) { Get-Content -LiteralPath $dialogDiag -Raw } else { '' }
+Get-Process -Name 'QuickLook-Next' -ErrorAction SilentlyContinue | Stop-Process -Force
+
+Assert ($dialogText -match 'accent-applied=True') '更新对话框使用与托盘菜单相同的 Acrylic 材质'
+Assert ($dialogText -match 'update=.*;ignore=') '更新对话框包含 立即更新 / 忽略更新 两个按钮'
+
 # ---------- 6. Shell 集成验证（空格键链路：Explorer 选区读取） ----------
-Write-Host "== 6/7 Shell 集成验证 ==" -ForegroundColor Cyan
+Write-Host "== 7/8 Shell 集成验证 ==" -ForegroundColor Cyan
 $shellProbe = @"
 using System;
 using System.Reflection;
@@ -439,7 +503,7 @@ else {
 }
 
 # ---------- 7. 清理 ----------
-Write-Host "== 7/7 清理 ==" -ForegroundColor Cyan
+Write-Host "== 8/8 清理 ==" -ForegroundColor Cyan
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 # v3.31.0: also clean up anything a preview request may have spawned while the
 # main instance was gone, so the next run starts from a known state.

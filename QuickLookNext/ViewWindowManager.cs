@@ -35,17 +35,14 @@ public class ViewWindowManager : IDisposable
 
     internal ViewWindowManager()
     {
-        // Creating the WPF preview window at startup costs UI-thread time that
-        // delays the tray icon and keyboard hook. Create it as soon as the
-        // dispatcher is idle instead; a preview request that arrives before
-        // then creates it on demand (EnsureViewerWindow).
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-        {
-            // A preview request may have created the window on demand already;
-            // do not create a second orphaned instance.
-            if (_viewerWindow == null)
-                InitNewViewerWindow();
-        }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        // v3.40.0: build and warm the preview window right here, before the keyboard
+        // hook, the tray menu and the pipe server start accepting requests, instead
+        // of at ApplicationIdle. The window is built either way - the difference is
+        // who waits for it. At ApplicationIdle the first preview of a session (the
+        // one asked for right after login) arrived while the window was still being
+        // created and waited for it; here it happens while nothing can ask yet, at
+        // the cost of the tray icon appearing ~0.3 s later.
+        InitNewViewerWindow();
     }
 
     internal ViewerWindow CurrentViewerWindow => _viewerWindow;

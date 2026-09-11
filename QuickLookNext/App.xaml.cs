@@ -180,6 +180,30 @@ public partial class App : Application
         RunListener(e);
         RecordStartupPhase("after-runlistener");
 
+        // Hidden test hook (/test-update-script): writes the real update script for
+        // the paths listed in <smokeDir>\update-request.txt and exits, so the smoke
+        // test can run the actual file replacement (wait for exit, backup, swap,
+        // keep UserData) without downloading a package from GitHub.
+        if (e.Args.Contains("/test-update-script"))
+        {
+            try
+            {
+                var request = File.ReadAllLines(Path.Combine(SmokeDir, "update-request.txt"));
+                File.WriteAllText(
+                    Path.Combine(Path.GetTempPath(), "QuickLookNext-update.cmd"),
+                    Helpers.Updater.BuildUpdateScriptForTest(
+                        request[0], request[1], request[2], request[3]));
+            }
+            catch (Exception ex)
+            {
+                ProcessHelper.WriteLog($"/test-update-script failed: {ex}");
+            }
+
+            _cleanExit = true;
+            Shutdown();
+            return;
+        }
+
         // Hidden test hook: open the tray menu once so the smoke test can
         // verify the Mica tray menu renders without errors.
         if (e.Args.Contains("/test-tray-menu"))
@@ -445,6 +469,20 @@ public partial class App : Application
         RecordStartupPhase("after-messagebox-patch-deferred");
 
         CheckUpdate();
+
+        // v3.40.0: a failed update used to be silent (the app just came back at the
+        // old version); tell the user what happened and where to get the package.
+        _ = Task.Delay(4000).ContinueWith(_ =>
+        {
+            try
+            {
+                Dispatcher.Invoke(Updater.ReportLastUpdateResult);
+            }
+            catch
+            {
+                // Reporting must never affect startup.
+            }
+        });
 
         CheckAndRegisterPluginIcon();
         RecordStartupPhase("onstartup-end");
